@@ -1,62 +1,62 @@
 # Running ZManage
 
-This project should run against Supabase Postgres. You do not need SQL Server or the Microsoft ODBC driver.
-
 ## Prerequisites
 
 - Python virtual environment available at `venv/`
 - Dependencies installed from `requirements.txt`
-- A Supabase Postgres connection string in `SUPABASE_DB_URL`
-- A valid Slack bot token in `SLACK_BOT_TOKEN`
-- A valid Slack signing secret in `SLACK_SIGNING_SECRET` if you want to receive Slack requests
+- SQLite, PostgreSQL, or Supabase Postgres reachable from `DATABASE_URL` or `SUPABASE_DB_URL`
 
-## Required environment variables
+Slack and an LLM provider are optional for local development:
 
-Use `.env` with values like:
+- Without Slack credentials, Slack endpoints will return `503`, but the app still starts.
+- Without an LLM key, extraction falls back to deterministic rule-based parsing.
+
+## Environment Variables
+
+Use `.env` values similar to:
 
 ```env
+APP_NAME=ZManage
 APP_ENV=development
-SUPABASE_DB_URL=postgresql://postgres.your-project-ref:your-db-password@aws-0-region.pooler.supabase.com:5432/postgres
-SLACK_BOT_TOKEN=xoxb-your-bot-token
-SLACK_SIGNING_SECRET=your-signing-secret
-SLACK_APP_TOKEN=xapp-your-app-token
-OPENAI_API_KEY=your_openai_key
+APP_VERSION=1.0.0
+LOG_LEVEL=INFO
+
+DATABASE_URL=sqlite:///./zmanage.db
+
+SLACK_BOT_TOKEN=
+SLACK_SIGNING_SECRET=
+SLACK_APP_TOKEN=
+SLACK_PUBLISH_DRAFTS=false
+
+LLM_PROVIDER=gemini
+LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+GEMINI_API_KEY=
+LLM_MODEL=gemini-2.5-flash
+LLM_TIMEOUT_SECONDS=30
 ```
 
-Notes:
+`LLM_API_KEY`, `LLM_MODEL`, and `LLM_BASE_URL` work with OpenAI-compatible providers.
+`GEMINI_API_KEY` is also accepted and maps to the same API key setting.
+`OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_TIMEOUT_SECONDS` remain valid aliases.
 
-- `SUPABASE_DB_URL` is the preferred DB variable.
-- For local development, prefer the Supabase Session pooler connection string from the dashboard `Connect` panel.
-- `SLACK_BOT_TOKEN` is the preferred Slack token variable.
-- The API will still start even if Slack credentials are wrong, but Slack endpoints will return an error when called.
-
-## Install dependencies
-
-From the project root:
+## Install Dependencies
 
 ```powershell
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-## Run the API
-
-From the project root:
+## Run The API
 
 ```powershell
 .\venv\Scripts\Activate.ps1
 $env:PYTHONPATH = "."
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+python scripts/dev.py
 ```
 
-The app will be available at:
+The default local URL is `http://127.0.0.1:8010`.
 
-- `http://127.0.0.1:8000`
-- Health check: `http://127.0.0.1:8000/health`
-
-## Run database migrations
-
-If you add Alembic revisions later, run:
+## Run Migrations
 
 ```powershell
 .\venv\Scripts\Activate.ps1
@@ -64,13 +64,42 @@ $env:PYTHONPATH = "."
 alembic upgrade head
 ```
 
-## If startup fails
+## Run Quality Checks
+
+```powershell
+.\venv\Scripts\Activate.ps1
+python -m black app tests scripts
+python -m ruff check app tests scripts
+python -m pytest
+pre-commit install
+```
+
+## Demo Paths
+
+Preview without Slack or DB writes:
+
+```powershell
+curl -X POST http://127.0.0.1:8010/api/v1/workflows/preview `
+  -H "Content-Type: application/json" `
+  -d "{\"text\":\"Decision: Ship pilot. Action: Prepare demo @maya 2026-03-20\"}"
+```
+
+Process and persist manual notes:
+
+```powershell
+curl -X POST http://127.0.0.1:8010/api/v1/workflows/process-text `
+  -H "Content-Type: application/json" `
+  -d "{\"text\":\"Decision: Ship pilot. Action: Prepare demo @maya 2026-03-20\",\"user_id\":\"demo-user\"}"
+```
+
+## Common Failures
 
 - `ModuleNotFoundError: No module named 'app'`
-  Set `PYTHONPATH` to `.` before running the app.
-
-- `invalid_auth`
-  Your Slack bot token is invalid. Replace `SLACK_BOT_TOKEN` with a real bot token from your Slack app.
-
-- Supabase connection errors
-  Verify the password, host, and port. If the direct database host fails, use the Supabase Session pooler connection string instead.
+  Set `PYTHONPATH` to `.` before running commands.
+- Slack `invalid_auth`
+  Replace `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` with real Slack app credentials.
+- Database connection errors
+  Verify the path for SQLite, or the host, port, password, and whether you are using a direct Postgres URL or Supabase pooler URL.
+- AI request failures
+  Leave `GEMINI_API_KEY` empty for deterministic parsing, or verify that `LLM_BASE_URL`,
+  `LLM_MODEL`, and the provider key match an OpenAI-compatible endpoint.

@@ -1,11 +1,15 @@
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, String, Uuid
-import uuid
-from app.db.base import Base
 import enum
+import uuid
+
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, String, Uuid
+
+from app.db.base import Base
+
 
 class ShareType(enum.Enum):
     channel = "channel"
     user = "user"
+
 
 class Share(Base):
     __tablename__ = "shares"

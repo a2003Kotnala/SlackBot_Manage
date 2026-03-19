@@ -1,52 +1,145 @@
-# Draft service
+from datetime import datetime
+from uuid import UUID
+
+from app.config import settings
 from app.db.models.draft import Draft, DraftStatus
-from app.db.models.extracted_item import ExtractedItem
+from app.db.models.extracted_item import Confidence, ExtractedItem, ItemType
+from app.db.models.source import Source
 from app.db.session import SessionLocal
 from app.domain.schemas.extraction import ExtractionResult
-from app.integrations.slack_client import slack_client
 from app.domain.services.canvas_composer import create_draft_canvas
-from datetime import datetime
+from app.integrations.slack_client import slack_client
+from app.logger import logger
 
-async def create_draft(owner_user_id: str, source_id: str, extraction: ExtractionResult) -> Draft:
-    """Create a draft from extraction."""
-    canvas_content = create_draft_canvas(extraction)
-    
-    # Upload to Slack as private canvas
-    file = await slack_client.upload_canvas(
-        channels="",  # Private
-        content=canvas_content,
-        title=f"Action Canvas Draft — {datetime.now().strftime('%Y-%m-%d')}"
+
+def create_draft(
+    owner_user_id: str | UUID | None,
+    source: Source,
+    extraction: ExtractionResult,
+    publish_to_slack: bool = True,
+) -> tuple[Draft, str]:
+    now = datetime.utcnow()
+    resolved_owner_user_id = _resolve_owner_user_id(owner_user_id, source)
+    canvas_content = create_draft_canvas(extraction, source.source_type.value)
+    file = None
+
+    should_publish = (
+        publish_to_slack
+        and settings.slack_publish_drafts
+        and slack_client.is_configured()
+        and bool(source.slack_channel_id)
     )
-    
+    if should_publish:
+        try:
+            file = slack_client.upload_canvas(
+                channel_id=source.slack_channel_id,
+                content=canvas_content,
+                title=f"Action Canvas Draft - {datetime.now().strftime('%Y-%m-%d')}",
+            )
+        except Exception as exc:  # pragma: no cover - external integration
+            logger.warning(
+                "Slack canvas upload failed; continuing with local draft only: %s",
+                exc,
+            )
+
     db = SessionLocal()
     try:
         draft = Draft(
-            owner_user_id=owner_user_id,
-            source_id=source_id,
-            slack_canvas_id=file["id"],
-            title=file["title"],
+            owner_user_id=resolved_owner_user_id,
+            source_id=source.id,
+            slack_canvas_id=file["id"] if file else None,
+            title=file["title"]
+            if file
+            else f"Action Canvas Draft - {now.strftime('%Y-%m-%d')}",
             status=DraftStatus.draft,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=now,
+            updated_at=now,
         )
         db.add(draft)
         db.commit()
         db.refresh(draft)
-        
-        # Save extracted items
-        for item in extraction.action_items + extraction.decisions + extraction.open_questions + extraction.risks:
-            extracted_item = ExtractedItem(
+
+        db.add(
+            ExtractedItem(
                 draft_id=draft.id,
-                item_type=item.__class__.__name__.lower(),  # e.g., action_item
-                content=item.content if hasattr(item, 'content') else str(item),
-                confidence=getattr(item, 'confidence', 'high'),
-                assignee=getattr(item, 'owner', None),
-                due_date=getattr(item, 'due_date', None),
-                created_at=datetime.utcnow()
+                item_type=ItemType.summary,
+                content=extraction.summary,
+                confidence=_map_confidence(extraction.confidence_overall),
+                assignee=None,
+                due_date=None,
+                created_at=now,
             )
-            db.add(extracted_item)
+        )
+
+        for item in extraction.decisions:
+            db.add(
+                ExtractedItem(
+                    draft_id=draft.id,
+                    item_type=ItemType.decision,
+                    content=item.content,
+                    confidence=_map_confidence(item.confidence),
+                    assignee=None,
+                    due_date=None,
+                    created_at=now,
+                )
+            )
+
+        for item in extraction.action_items:
+            db.add(
+                ExtractedItem(
+                    draft_id=draft.id,
+                    item_type=ItemType.action_item,
+                    content=item.content,
+                    confidence=_map_confidence(item.confidence),
+                    assignee=item.owner,
+                    due_date=item.due_date,
+                    created_at=now,
+                )
+            )
+
+        for item in extraction.open_questions:
+            db.add(
+                ExtractedItem(
+                    draft_id=draft.id,
+                    item_type=ItemType.question,
+                    content=item.content,
+                    confidence=_map_confidence(item.confidence),
+                    assignee=None,
+                    due_date=None,
+                    created_at=now,
+                )
+            )
+
+        for item in extraction.risks:
+            db.add(
+                ExtractedItem(
+                    draft_id=draft.id,
+                    item_type=ItemType.blocker,
+                    content=item.content,
+                    confidence=_map_confidence(item.confidence),
+                    assignee=None,
+                    due_date=None,
+                    created_at=now,
+                )
+            )
+
         db.commit()
-        
-        return draft
+        db.refresh(draft)
+        return draft, canvas_content
     finally:
         db.close()
+
+
+def _map_confidence(value):
+    return Confidence[value.value]
+
+
+def _resolve_owner_user_id(owner_user_id: str | UUID | None, source: Source) -> UUID | None:
+    if isinstance(owner_user_id, UUID):
+        return owner_user_id
+    if isinstance(owner_user_id, str):
+        try:
+            return UUID(owner_user_id)
+        except ValueError:
+            pass
+    return source.created_by

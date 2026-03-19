@@ -1,7 +1,8 @@
-from pydantic import BaseModel
-from typing import List, Optional
-from datetime import date
 import enum
+from datetime import date
+
+from pydantic import BaseModel, Field
+
 
 class Confidence(str, enum.Enum):
     high = "high"
@@ -9,18 +10,25 @@ class Confidence(str, enum.Enum):
     low = "low"
     needs_review = "needs_review"
 
-class ActionItem(BaseModel):
+
+class InsightItem(BaseModel):
     content: str
-    owner: Optional[str] = None
-    due_date: Optional[date] = None
+    confidence: Confidence = Confidence.medium
+
+
+class ActionItem(InsightItem):
+    owner: str | None = None
+    due_date: date | None = None
+    confidence: Confidence = Confidence.needs_review
+
 
 class ExtractionResult(BaseModel):
-    summary: str
-    what_happened: str
-    decisions: List[str]
-    action_items: List[ActionItem]
-    owners: List[str]
-    due_dates: List[date]
-    open_questions: List[str]
-    risks: List[str]
-    confidence_overall: Confidence
+    summary: str = ""
+    what_happened: str = ""
+    decisions: list[InsightItem] = Field(default_factory=list)
+    action_items: list[ActionItem] = Field(default_factory=list)
+    owners: list[str] = Field(default_factory=list)
+    due_dates: list[date] = Field(default_factory=list)
+    open_questions: list[InsightItem] = Field(default_factory=list)
+    risks: list[InsightItem] = Field(default_factory=list)
+    confidence_overall: Confidence = Confidence.needs_review

@@ -1,20 +1,44 @@
 [tool.poetry]
 name = "zmanage"
-version = "0.1.0"
-description = ""
-authors = ["Your Name <your.email@example.com>"]
+version = "1.0.0"
+description = "Slack-to-action-plan backend for extracting structured execution items from huddle notes."
+authors = ["ZManage Team <engineering@example.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.11"
 fastapi = "^0.104.1"
+uvicorn = "^0.24.0"
 slack-bolt = "^1.18.0"
 sqlalchemy = "^2.0.23"
 alembic = "^1.12.1"
 pydantic = "^2.5.0"
+pydantic-settings = "^2.1.0"
 httpx = "^0.25.2"
+psycopg2-binary = "^2.9.9"
 pytest = "^7.4.3"
+pytest-cov = "^5.0.0"
 ruff = "^0.1.6"
 black = "^23.11.0"
+pre-commit = "^4.2.0"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"app/db/migrations/env.py" = ["E402", "F403"]
+"app/db/models/__init__.py" = ["F401"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
 
 [build-system]
 requires = ["poetry-core"]

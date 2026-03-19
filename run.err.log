@@ -1,0 +1,5 @@
+2026-03-19 10:47:07,913 INFO [zmanage] Application configured for development
+INFO:     Started server process [3628]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8010 (Press CTRL+C to quit)

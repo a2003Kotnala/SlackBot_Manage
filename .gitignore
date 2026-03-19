@@ -13,6 +13,9 @@ env/
 
 # Environment files
 .env
+*.db
+*.db-shm
+*.db-wal
 
 # Tooling and local artifacts
 .ruff_cache/

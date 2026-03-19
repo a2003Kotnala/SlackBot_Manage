@@ -1,7 +1,10 @@
-from sqlalchemy import Column, Date, DateTime, Enum, ForeignKey, String, Uuid
-import uuid
-from app.db.base import Base
 import enum
+import uuid
+
+from sqlalchemy import Column, Date, DateTime, Enum, ForeignKey, String, Uuid
+
+from app.db.base import Base
+
 
 class ItemType(enum.Enum):
     summary = "summary"
@@ -12,11 +15,13 @@ class ItemType(enum.Enum):
     question = "question"
     blocker = "blocker"
 
+
 class Confidence(enum.Enum):
     high = "high"
     medium = "medium"
     low = "low"
     needs_review = "needs_review"
+
 
 class ExtractedItem(Base):
     __tablename__ = "extracted_items"

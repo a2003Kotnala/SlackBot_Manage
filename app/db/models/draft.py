@@ -1,12 +1,16 @@
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, String, Uuid
-import uuid
-from app.db.base import Base
 import enum
+import uuid
+
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, String, Uuid
+
+from app.db.base import Base
+
 
 class DraftStatus(enum.Enum):
     draft = "draft"
     shared = "shared"
     archived = "archived"
+
 
 class Draft(Base):
     __tablename__ = "drafts"

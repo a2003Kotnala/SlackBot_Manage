@@ -1,7 +1,10 @@
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, String, Uuid
-import uuid
-from app.db.base import Base
 import enum
+import uuid
+
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, String, Uuid
+
+from app.db.base import Base
+
 
 class SourceType(enum.Enum):
     huddle_notes = "huddle_notes"
@@ -9,6 +12,7 @@ class SourceType(enum.Enum):
     csv = "csv"
     voice = "voice"
     thread = "thread"
+
 
 class Source(Base):
     __tablename__ = "sources"
