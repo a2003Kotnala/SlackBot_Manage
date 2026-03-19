@@ -35,17 +35,23 @@ def register_handlers(bolt_app) -> None:
 
         extraction = extract_structured_meeting_data(source.raw_content_reference)
         draft, _canvas_content = create_draft(source.created_by, source, extraction)
+        tracking_summary = (
+            f"{len(extraction.action_items)} action item(s), "
+            f"{len(extraction.risks) + len(extraction.open_questions)} attention item(s)."
+        )
 
         if draft.slack_canvas_id:
             say(
-                "Draft created successfully. "
+                "Channel canvas updated successfully. "
                 f"Title: {draft.title}. "
-                f"Slack canvas ID: {draft.slack_canvas_id}."
+                f"Slack canvas ID: {draft.slack_canvas_id}. "
+                f"{tracking_summary}"
             )
             return
 
         say(
             "Draft created locally. "
             f"Title: {draft.title}. "
+            f"{tracking_summary} "
             "Slack publication was skipped or unavailable."
         )

@@ -20,8 +20,12 @@ class OpenAIClient:
         prompt = (
             "Extract structured meeting data from the notes below.\n"
             "Return valid JSON with these keys:\n"
+            "meeting_title: string\n"
             "summary: string\n"
             "what_happened: string\n"
+            "status_summary: string\n"
+            "priority_focus: string\n"
+            "next_review_date: ISO date or null\n"
             "decisions: array of {content, confidence}\n"
             "action_items: array of {content, owner, due_date, confidence}\n"
             "owners: array of strings\n"

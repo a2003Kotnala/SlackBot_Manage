@@ -23,8 +23,11 @@ def extract_structured_meeting_data(raw_content: str) -> ExtractionResult:
     normalized = raw_content.strip()
     if not normalized:
         return ExtractionResult(
+            meeting_title="Execution Review",
             summary="No meeting content was provided.",
             what_happened="No meeting content was provided.",
+            status_summary="Needs input",
+            priority_focus="Capture meeting notes to generate a tracking draft.",
         )
 
     if openai_client.is_configured():
@@ -71,13 +74,12 @@ def _extract_with_rules(raw_content: str) -> ExtractionResult:
         else:
             narrative_lines.append(line)
 
-    summary = (
-        " ".join(narrative_lines[:2])
-        or "Structured notes were extracted from the source."
-    )
+    meeting_title = _derive_meeting_title(lines, narrative_lines)
+    summary = " ".join(narrative_lines[:2]) or "Structured notes were extracted from the source."
     what_happened = " ".join(narrative_lines[:5]) or summary
     owners = _unique(item.owner for item in action_items if item.owner)
     due_dates = _unique_dates(item.due_date for item in action_items if item.due_date)
+    next_review_date = min(due_dates) if due_dates else None
     confidence = (
         Confidence.high
         if any([decisions, action_items, open_questions, risks])
@@ -85,8 +87,12 @@ def _extract_with_rules(raw_content: str) -> ExtractionResult:
     )
 
     return ExtractionResult(
+        meeting_title=meeting_title,
         summary=summary,
         what_happened=what_happened,
+        status_summary=_derive_status_summary(action_items, open_questions, risks),
+        priority_focus=_derive_priority_focus(action_items, risks, open_questions, decisions),
+        next_review_date=next_review_date,
         decisions=decisions,
         action_items=action_items,
         owners=owners,
@@ -140,3 +146,45 @@ def _unique_dates(values: Iterable[date]) -> list[date]:
         if value not in seen:
             seen.append(value)
     return seen
+
+
+def _derive_meeting_title(lines: list[str], narrative_lines: list[str]) -> str:
+    candidates = narrative_lines or lines
+    if not candidates:
+        return "Execution Review"
+
+    candidate = candidates[0].strip(" -")
+    if ":" in candidate and len(candidate.split(":", 1)[0].split()) <= 3:
+        candidate = candidate.split(":", 1)[1].strip()
+    return candidate[:80] or "Execution Review"
+
+
+def _derive_status_summary(
+    action_items: list[ActionItem],
+    open_questions: list[InsightItem],
+    risks: list[InsightItem],
+) -> str:
+    if risks:
+        return "At risk"
+    if open_questions:
+        return "Needs follow-up"
+    if action_items:
+        return "Execution in progress"
+    return "Needs review"
+
+
+def _derive_priority_focus(
+    action_items: list[ActionItem],
+    risks: list[InsightItem],
+    open_questions: list[InsightItem],
+    decisions: list[InsightItem],
+) -> str:
+    if risks:
+        return risks[0].content
+    if open_questions:
+        return open_questions[0].content
+    if action_items:
+        return action_items[0].content
+    if decisions:
+        return decisions[0].content
+    return "Confirm next steps and owners."

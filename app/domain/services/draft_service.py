@@ -21,6 +21,7 @@ def create_draft(
     now = datetime.utcnow()
     resolved_owner_user_id = _resolve_owner_user_id(owner_user_id, source)
     canvas_content = create_draft_canvas(extraction, source.source_type.value)
+    canvas_title = _build_canvas_title(extraction.meeting_title, now)
     file = None
 
     should_publish = (
@@ -34,7 +35,7 @@ def create_draft(
             file = slack_client.upload_canvas(
                 channel_id=source.slack_channel_id,
                 content=canvas_content,
-                title=f"Action Canvas Draft - {datetime.now().strftime('%Y-%m-%d')}",
+                title=canvas_title,
             )
         except Exception as exc:  # pragma: no cover - external integration
             logger.warning(
@@ -48,9 +49,7 @@ def create_draft(
             owner_user_id=resolved_owner_user_id,
             source_id=source.id,
             slack_canvas_id=file["id"] if file else None,
-            title=file["title"]
-            if file
-            else f"Action Canvas Draft - {now.strftime('%Y-%m-%d')}",
+            title=file["title"] if file else canvas_title,
             status=DraftStatus.draft,
             created_at=now,
             updated_at=now,
@@ -143,3 +142,10 @@ def _resolve_owner_user_id(owner_user_id: str | UUID | None, source: Source) -> 
         except ValueError:
             pass
     return source.created_by
+
+
+def _build_canvas_title(meeting_title: str, now: datetime) -> str:
+    normalized = (meeting_title or "").strip()
+    if not normalized:
+        normalized = f"Meeting - {now.strftime('%Y-%m-%d')}"
+    return f"Action Canvas - {normalized[:80]}"
