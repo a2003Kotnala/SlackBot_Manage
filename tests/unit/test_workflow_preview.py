@@ -25,6 +25,7 @@ def test_workflow_preview_returns_canvas_and_extraction():
     assert payload["extraction"]["action_items"][0]["owner"] == "maya"
     assert "Action Canvas" in payload["draft_canvas_markdown"]
     assert "## Action Tracker" in payload["draft_canvas_markdown"]
-    assert "| ID | Action | Owner | Due | Status | Priority | Confidence | Notes |" in payload[
+    assert "| ID | Action | Owner | Due | Status | Priority | Notes |" in payload[
         "draft_canvas_markdown"
     ]
+    assert "## Attention Log" in payload["draft_canvas_markdown"]

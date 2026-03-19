@@ -23,8 +23,12 @@ class ActionItem(InsightItem):
 
 
 class ExtractionResult(BaseModel):
+    meeting_title: str = "Execution Review"
     summary: str = ""
     what_happened: str = ""
+    status_summary: str = ""
+    priority_focus: str = ""
+    next_review_date: date | None = None
     decisions: list[InsightItem] = Field(default_factory=list)
     action_items: list[ActionItem] = Field(default_factory=list)
     owners: list[str] = Field(default_factory=list)

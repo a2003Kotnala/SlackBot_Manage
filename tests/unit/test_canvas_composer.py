@@ -11,8 +11,12 @@ from app.domain.services.canvas_composer import create_draft_canvas
 
 def test_create_draft_canvas_renders_tracking_tables_and_checklist():
     extraction = ExtractionResult(
+        meeting_title="Launch Readiness Review",
         summary="Reviewed launch readiness.",
         what_happened="The team confirmed scope and assigned follow-ups.",
+        status_summary="Execution in progress",
+        priority_focus="Prepare beta checklist",
+        next_review_date=date(2026, 3, 20),
         decisions=[InsightItem(content="Launch internal beta", confidence=Confidence.high)],
         action_items=[
             ActionItem(
@@ -44,10 +48,9 @@ def test_create_draft_canvas_renders_tracking_tables_and_checklist():
     assert "## Tracking Snapshot" in canvas
     assert "| Metric | Value |" in canvas
     assert "## Action Tracker" in canvas
-    assert "| ID | Action | Owner | Due | Status | Priority | Confidence | Notes |" in canvas
+    assert "| ID | Action | Owner | Due | Status | Priority | Notes |" in canvas
     assert "Prepare beta checklist" in canvas
+    assert "## Attention Log" in canvas
     assert "## Decision Register" in canvas
-    assert "## Open Questions" in canvas
-    assert "## Risks And Blockers" in canvas
     assert "## Next Review Checklist" in canvas
-    assert "- [ ] Confirm 1 action item(s) have clear owners." in canvas
+    assert "- [ ] Confirm 1 action item(s) have clear owners and dates." in canvas
