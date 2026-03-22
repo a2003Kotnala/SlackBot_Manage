@@ -15,6 +15,7 @@ def test_settings_ignore_placeholder_credentials(monkeypatch):
     settings = Settings(_env_file=None)
 
     assert settings.resolved_database_url == DEFAULT_DATABASE_URL
+    assert settings.is_postgresql
     assert not settings.slack_configured
     assert not settings.llm_configured
     assert not settings.openai_configured

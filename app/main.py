@@ -3,7 +3,13 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Request
 
-from app.api.routes import health, slack_commands, slack_interactions, workflows
+from app.api.routes import (
+    followthru,
+    health,
+    slack_commands,
+    slack_interactions,
+    workflows,
+)
 from app.config import settings
 from app.logger import configure_logging, logger
 
@@ -22,6 +28,7 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(health.router)
+    app.include_router(followthru.router)
     app.include_router(slack_commands.router)
     app.include_router(slack_interactions.router)
     app.include_router(workflows.router)

@@ -8,4 +8,4 @@ def configure_logging(level: str) -> None:
     )
 
 
-logger = logging.getLogger("zmanage")
+logger = logging.getLogger("followthru")

@@ -1,105 +1,102 @@
-# ZManage
+# FollowThru
 
-ZManage is a FastAPI backend that turns Slack huddle notes and manually supplied meeting text into structured action-plan drafts.
+FollowThru is a FastAPI backend that turns Slack huddle notes, chat prompts, and
+voice-command transcripts into structured action canvases.
 
-## What Is Implemented
+## Launch Scope
 
-- Slack command entrypoints through FastAPI and Slack Bolt
-- Rule-based extraction fallback for local/demo mode
-- Optional AI-powered extraction through any OpenAI-compatible API
-- Draft canvas composition and persistence to SQLite or PostgreSQL
-- SQLite-first local development with PostgreSQL/Supabase kept for production
-- Preview and processing APIs for non-Slack demos
-- Alembic migration baseline, tests, lint, format, and pre-commit config
+- PostgreSQL-first workflow storage with Alembic migrations
+- Slack slash-command and app-mention handling
+- FollowThru chat API with persisted sessions and messages
+- Voice-command API that accepts speech-to-text transcripts and drives canvas generation
+- Deterministic extraction fallback plus optional OpenAI-compatible LLM support
+- Slack canvas publishing when workspace credentials and channel context are available
 
-## Workflow Phases
-
-1. Source capture
-   Slack canvas lookup or direct text submission
-2. Extraction
-   Structured parsing of decisions, action items, questions, and risks
-3. Draft generation
-   Canvas markdown assembly and draft persistence
-4. Publication
-   Optional Slack canvas upload when credentials and channel context exist
-5. Operability
-   Health checks, migration support, tests, and code-quality tooling
-
-## Stack
-
-- FastAPI
-- Slack Bolt for Python
-- SQLAlchemy
-- Alembic
-- PostgreSQL
-- SQLite (local development)
-- OpenAI-compatible LLM API (optional)
-
-## API Endpoints
+## Core Endpoints
 
 - `GET /health`
 - `GET /db-health`
+- `GET /api/v1/followthru/capabilities`
+- `POST /api/v1/followthru/chat`
+- `POST /api/v1/followthru/voice-command`
 - `POST /api/v1/workflows/preview`
 - `POST /api/v1/workflows/process-text`
 - `POST /slack/commands`
 - `POST /slack/interactions`
 
-## Local Setup
+## Slack Surface
 
-1. Create and activate a virtual environment.
-2. Install dependencies:
+Primary command:
+
+- `/followthru <notes>`
+- `/followthru publish <notes>`
+- `/followthru draft <notes>`
+- `/followthru preview <notes>`
+- `/followthru help`
+
+Backward-compatible alias:
+
+- `/zmanage`
+
+Chat in Slack is also enabled through `@FollowThru` app mentions.
+
+## Local PostgreSQL Setup
+
+Start PostgreSQL with Docker Compose:
 
 ```powershell
-pip install -r requirements.txt
+docker compose up -d postgres
 ```
 
-3. Configure environment variables in `.env` using `.env.example`.
-   For local work, `DATABASE_URL=sqlite:///./zmanage.db` is enough.
-   Leave `GEMINI_API_KEY` empty to use rule-based extraction only, or set
-   `LLM_PROVIDER=gemini`, `GEMINI_API_KEY`, and optionally override `LLM_MODEL`.
-4. Run migrations:
+Create `.env` from `.env.example`, then run:
 
 ```powershell
 .\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 $env:PYTHONPATH="."
 alembic upgrade head
-```
-5. Run the API:
-
-```powershell
-$env:PYTHONPATH="."
 python scripts/dev.py
 ```
 
-## Local Demo Without Slack Or An LLM
+The default local API URL is `http://127.0.0.1:8010`.
 
-Use the preview endpoint with raw text:
+## Example Requests
+
+Preview a canvas without persistence:
 
 ```powershell
 curl -X POST http://127.0.0.1:8010/api/v1/workflows/preview `
   -H "Content-Type: application/json" `
-  -d "{\"text\":\"Decision: Ship the pilot. Action: Prepare demo @maya 2026-03-20\"}"
+  -d "{\"text\":\"Decision: Ship pilot. Action: Prepare demo @maya 2026-03-25\"}"
 ```
 
-## Database And AI Config
-
-- Local development defaults to SQLite through `DATABASE_URL=sqlite:///./zmanage.db`.
-- PostgreSQL or Supabase stays the production target.
-- `DATABASE_URL` is preferred over `SUPABASE_DB_URL` when both are present.
-- Gemini is the default local AI example through Google’s OpenAI-compatible endpoint.
-- `LLM_API_KEY`, `LLM_MODEL`, and `LLM_BASE_URL` support OpenAI-compatible providers.
-- `GEMINI_API_KEY` is accepted as a convenience alias for `LLM_API_KEY`.
-- `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_TIMEOUT_SECONDS` still work as
-  backward-compatible aliases.
-- Apply migrations with:
+Chat with FollowThru:
 
 ```powershell
-alembic upgrade head
+curl -X POST http://127.0.0.1:8010/api/v1/followthru/chat `
+  -H "Content-Type: application/json" `
+  -d "{\"message\":\"preview these notes: Decision: Ship pilot. Action: Prepare demo @maya 2026-03-25\",\"user_id\":\"demo-user\"}"
 ```
 
-## Tooling
+Run a voice-command transcript:
 
-- Format: `black .`
-- Lint: `ruff check .`
-- Tests: `python -m pytest`
-- Hooks: `pre-commit install`
+```powershell
+curl -X POST http://127.0.0.1:8010/api/v1/followthru/voice-command `
+  -H "Content-Type: application/json" `
+  -d "{\"transcript\":\"publish these notes: Decision: Ship pilot. Action: Prepare demo @maya 2026-03-25\",\"user_id\":\"voice-user\"}"
+```
+
+## Quality Checks
+
+```powershell
+python -m black app tests scripts
+python -m ruff check app tests
+python -m pytest tests\unit
+```
+
+## Release Notes
+
+- PostgreSQL is now the default target database in config and docs.
+- FollowThru is the primary bot identity and Slack command.
+- `.env.example` contains placeholders only and no live-looking credentials.
+- A launch checklist is available at [docs/LAUNCH_CHECKLIST.md](docs/LAUNCH_CHECKLIST.md).

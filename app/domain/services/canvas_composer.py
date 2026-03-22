@@ -7,7 +7,9 @@ from app.domain.schemas.extraction import ActionItem, ExtractionResult, InsightI
 def create_draft_canvas(
     extraction: ExtractionResult, source_label: str = "huddle_notes"
 ) -> str:
-    title = extraction.meeting_title or f"Meeting - {datetime.now().strftime('%Y-%m-%d')}"
+    title = (
+        extraction.meeting_title or f"Meeting - {datetime.now().strftime('%Y-%m-%d')}"
+    )
     sections = [
         build_meta_section(extraction, source_label, title),
         divider(),
@@ -65,7 +67,9 @@ def progress_bar(done: int, total: int, width: int = 10) -> str:
 def build_meta_section(
     extraction: ExtractionResult, source_label: str, title: str
 ) -> str:
-    owners = ", ".join(bold(owner) for owner in extraction.owners) or italic("Unassigned")
+    owners = ", ".join(bold(owner) for owner in extraction.owners) or italic(
+        "Unassigned"
+    )
     next_review = (
         extraction.next_review_date.strftime("%d %b %Y")
         if extraction.next_review_date
@@ -82,7 +86,8 @@ def build_meta_section(
             "",
             (
                 f":calendar: {bold('Date:')} {datetime.now().strftime('%d %b %Y')}   "
-                f":traffic_light: {bold('Status:')} {extraction.status_summary or 'Needs review'}   "
+                f":traffic_light: {bold('Status:')} "
+                f"{extraction.status_summary or 'Needs review'}   "
                 f":spiral_calendar_pad: {bold('Next review:')} {next_review}"
             ),
             "",
@@ -144,10 +149,13 @@ def build_action_items_section(items: list[ActionItem]) -> str:
         lines.append("| " + " | ".join(row) + " |")
 
     if any(item.owner is None for item in items):
+        review_note = (
+            "Items marked Needs Review need an owner before they can be closed."
+        )
         lines.extend(
             [
                 "",
-                f"> :eyes: {italic('Items marked Needs Review need an owner before they can be closed.')}",
+                f"> :eyes: {italic(review_note)}",
             ]
         )
     return "\n".join(lines)
@@ -179,12 +187,14 @@ def build_footer(extraction: ExtractionResult, source_label: str) -> str:
     generated_at = datetime.now().strftime("%d %b %Y, %H:%M")
     summary_table = _render_table(
         ["", "", "", ""],
-        [[
-            _metric_card("To Do", todo),
-            _metric_card("Needs review", needs_review),
-            _metric_card("High priority", high_priority),
-            _metric_card("Attention", attention),
-        ]],
+        [
+            [
+                _metric_card("To Do", todo),
+                _metric_card("Needs review", needs_review),
+                _metric_card("High priority", high_priority),
+                _metric_card("Attention", attention),
+            ]
+        ],
     )
     footer_line = (
         f":robot_face: {bold('Generated')} {generated_at}   "
@@ -223,7 +233,11 @@ def _status_badge(item: ActionItem) -> str:
 
 
 def _status_plain(item: ActionItem) -> str:
-    if item.owner is None or item.due_date is None or item.confidence.value == "needs_review":
+    if (
+        item.owner is None
+        or item.due_date is None
+        or item.confidence.value == "needs_review"
+    ):
         return "Needs Review"
     if item.due_date < date.today():
         return "Blocked"
@@ -301,5 +315,7 @@ def _clean_summary_text(text: str, meeting_title: str) -> str:
     for pattern in patterns:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
     cleaned = re.sub(r"\bsummary\s*:\s*", "", cleaned, flags=re.IGNORECASE).strip()
-    cleaned = re.sub(r"\bwhat happened\s*:\s*", "", cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(
+        r"\bwhat happened\s*:\s*", "", cleaned, flags=re.IGNORECASE
+    ).strip()
     return cleaned

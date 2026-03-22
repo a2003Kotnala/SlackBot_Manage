@@ -17,7 +17,9 @@ def test_create_draft_canvas_renders_slack_native_tracking_layout():
         status_summary="Execution in progress",
         priority_focus="Prepare beta checklist",
         next_review_date=date(2026, 3, 20),
-        decisions=[InsightItem(content="Launch internal beta", confidence=Confidence.high)],
+        decisions=[
+            InsightItem(content="Launch internal beta", confidence=Confidence.high)
+        ],
         action_items=[
             ActionItem(
                 content="Prepare beta checklist",
@@ -75,4 +77,7 @@ def test_create_draft_canvas_deduplicates_summary_content():
 
     assert "## Meeting Summary" in canvas
     assert " Roadmap Sync - Product, Design, Engineering Summary:" not in canvas
-    assert "The team reviewed roadmap priorities and agreed to shift execution focus." in canvas
+    assert (
+        "The team reviewed roadmap priorities and agreed to shift execution focus."
+        in canvas
+    )

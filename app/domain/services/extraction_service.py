@@ -35,7 +35,10 @@ def extract_structured_meeting_data(raw_content: str) -> ExtractionResult:
             return openai_client.extract_meeting_data(normalized)
         except Exception as exc:  # pragma: no cover - external integration
             logger.warning(
-                "Configured LLM extraction failed; falling back to deterministic parsing: %s",
+                (
+                    "Configured LLM extraction failed; "
+                    "falling back to deterministic parsing: %s"
+                ),
                 exc,
             )
 
@@ -75,7 +78,10 @@ def _extract_with_rules(raw_content: str) -> ExtractionResult:
             narrative_lines.append(line)
 
     meeting_title = _derive_meeting_title(lines, narrative_lines)
-    summary = " ".join(narrative_lines[:2]) or "Structured notes were extracted from the source."
+    summary = (
+        " ".join(narrative_lines[:2])
+        or "Structured notes were extracted from the source."
+    )
     what_happened = " ".join(narrative_lines[:5]) or summary
     owners = _unique(item.owner for item in action_items if item.owner)
     due_dates = _unique_dates(item.due_date for item in action_items if item.due_date)
@@ -91,7 +97,9 @@ def _extract_with_rules(raw_content: str) -> ExtractionResult:
         summary=summary,
         what_happened=what_happened,
         status_summary=_derive_status_summary(action_items, open_questions, risks),
-        priority_focus=_derive_priority_focus(action_items, risks, open_questions, decisions),
+        priority_focus=_derive_priority_focus(
+            action_items, risks, open_questions, decisions
+        ),
         next_review_date=next_review_date,
         decisions=decisions,
         action_items=action_items,

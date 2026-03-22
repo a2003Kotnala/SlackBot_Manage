@@ -1,105 +1,96 @@
-# Running ZManage
+# Running FollowThru
 
 ## Prerequisites
 
 - Python virtual environment available at `venv/`
 - Dependencies installed from `requirements.txt`
-- SQLite, PostgreSQL, or Supabase Postgres reachable from `DATABASE_URL` or `SUPABASE_DB_URL`
+- PostgreSQL reachable from `DATABASE_URL`
 
 Slack and an LLM provider are optional for local development:
 
-- Without Slack credentials, Slack endpoints will return `503`, but the app still starts.
-- Without an LLM key, extraction falls back to deterministic rule-based parsing.
+- Without Slack credentials, Slack endpoints return `503`, but the API still starts.
+- Without an LLM key, extraction and chat fall back to deterministic behavior.
 
-## Environment Variables
+## Environment
 
-Use `.env` values similar to:
+Use `.env.example` as the source of truth. The intended local database is:
 
 ```env
-APP_NAME=ZManage
-APP_ENV=development
-APP_VERSION=1.0.0
-LOG_LEVEL=INFO
-
-DATABASE_URL=sqlite:///./zmanage.db
-
-SLACK_BOT_TOKEN=
-SLACK_SIGNING_SECRET=
-SLACK_APP_TOKEN=
-SLACK_PUBLISH_DRAFTS=false
-
-LLM_PROVIDER=gemini
-LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
-GEMINI_API_KEY=
-LLM_MODEL=gemini-2.5-flash
-LLM_TIMEOUT_SECONDS=30
+DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/followthru
 ```
 
-`LLM_API_KEY`, `LLM_MODEL`, and `LLM_BASE_URL` work with OpenAI-compatible providers.
-`GEMINI_API_KEY` is also accepted and maps to the same API key setting.
-`OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_TIMEOUT_SECONDS` remain valid aliases.
+Start PostgreSQL locally with:
 
-## Install Dependencies
+```powershell
+docker compose up -d postgres
+```
+
+## Install And Migrate
 
 ```powershell
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+$env:PYTHONPATH="."
+alembic upgrade head
 ```
 
 ## Run The API
 
 ```powershell
 .\venv\Scripts\Activate.ps1
-$env:PYTHONPATH = "."
+$env:PYTHONPATH="."
 python scripts/dev.py
 ```
 
 The default local URL is `http://127.0.0.1:8010`.
 
-## Run Migrations
+## Slack Setup
+
+Configure these Slack app values:
+
+- Slash command: `/followthru`
+- Request URL: `https://<public-host>/slack/commands`
+- Interactivity Request URL: `https://<public-host>/slack/interactions`
+- Event subscription for `app_mention`
+
+Reinstall the Slack app after changing commands or event subscriptions.
+
+## API Smoke Tests
 
 ```powershell
-.\venv\Scripts\Activate.ps1
-$env:PYTHONPATH = "."
-alembic upgrade head
+curl http://127.0.0.1:8010/health
+curl http://127.0.0.1:8010/api/v1/followthru/capabilities
 ```
 
-## Run Quality Checks
+```powershell
+curl -X POST http://127.0.0.1:8010/api/v1/followthru/chat `
+  -H "Content-Type: application/json" `
+  -d "{\"message\":\"help\",\"user_id\":\"demo-user\"}"
+```
 
 ```powershell
-.\venv\Scripts\Activate.ps1
+curl -X POST http://127.0.0.1:8010/api/v1/followthru/voice-command `
+  -H "Content-Type: application/json" `
+  -d "{\"transcript\":\"preview these notes: Decision: Ship pilot. Action: Prepare demo @maya 2026-03-25\",\"user_id\":\"voice-user\"}"
+```
+
+## Quality Checks
+
+```powershell
 python -m black app tests scripts
-python -m ruff check app tests scripts
-python -m pytest
-pre-commit install
-```
-
-## Demo Paths
-
-Preview without Slack or DB writes:
-
-```powershell
-curl -X POST http://127.0.0.1:8010/api/v1/workflows/preview `
-  -H "Content-Type: application/json" `
-  -d "{\"text\":\"Decision: Ship pilot. Action: Prepare demo @maya 2026-03-20\"}"
-```
-
-Process and persist manual notes:
-
-```powershell
-curl -X POST http://127.0.0.1:8010/api/v1/workflows/process-text `
-  -H "Content-Type: application/json" `
-  -d "{\"text\":\"Decision: Ship pilot. Action: Prepare demo @maya 2026-03-20\",\"user_id\":\"demo-user\"}"
+python -m ruff check app tests
+python -m pytest tests\unit
 ```
 
 ## Common Failures
 
 - `ModuleNotFoundError: No module named 'app'`
-  Set `PYTHONPATH` to `.` before running commands.
-- Slack `invalid_auth`
-  Replace `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` with real Slack app credentials.
-- Database connection errors
-  Verify the path for SQLite, or the host, port, password, and whether you are using a direct Postgres URL or Supabase pooler URL.
+  Set `PYTHONPATH` to `.`
+- `connection refused` or `password authentication failed`
+  Verify the local PostgreSQL container and `DATABASE_URL`
+- Slack `dispatch_failed`
+  Check the public Request URL and reinstall the Slack app
+- Slack says `/followthru` is not a valid command
+  Create the slash command in Slack App settings and reinstall
 - AI request failures
-  Leave `GEMINI_API_KEY` empty for deterministic parsing, or verify that `LLM_BASE_URL`,
-  `LLM_MODEL`, and the provider key match an OpenAI-compatible endpoint.
+  Leave `LLM_API_KEY` empty for deterministic behavior, or verify the provider URL, model, and key

@@ -3,7 +3,7 @@ from app.domain.services.extraction_service import extract_structured_meeting_da
 
 def test_rule_based_extraction_parses_actions_decisions_and_risks():
     notes = """
-    Weekly engineering sync for the ZManage rollout.
+    Weekly engineering sync for the FollowThru rollout.
     Decision: Keep Slack as the system of engagement and Postgres as the system of
     record.
     Action: Prepare boss-ready demo narrative @anita 2026-03-21
