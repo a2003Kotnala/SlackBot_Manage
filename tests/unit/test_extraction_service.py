@@ -23,3 +23,15 @@ def test_rule_based_extraction_parses_actions_decisions_and_risks():
     assert result.action_items[0].due_date.isoformat() == "2026-03-21"
     assert result.risks[0].content.startswith("Production Slack")
     assert result.open_questions[0].content.startswith("Should we enable")
+
+
+def test_rule_based_extraction_splits_inline_labeled_segments():
+    notes = "Decision: Ship the pilot. Action: Prepare demo @maya 2026-03-21 Risk: QA sign-off is pending."
+
+    result = extract_structured_meeting_data(notes)
+
+    assert result.decisions[0].content.startswith("Ship the pilot")
+    assert result.action_items[0].content.startswith("Prepare demo")
+    assert result.action_items[0].owner == "maya"
+    assert result.action_items[0].due_date.isoformat() == "2026-03-21"
+    assert result.risks[0].content.startswith("QA sign-off")

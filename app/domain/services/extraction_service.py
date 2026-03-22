@@ -17,6 +17,9 @@ RISK_PREFIXES = ("risk:", "blocker:", "issue:")
 QUESTION_PREFIXES = ("question:", "q:")
 DATE_PATTERN = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 OWNER_PATTERN = re.compile(r"@([A-Za-z0-9._-]+)")
+INLINE_LABEL_PATTERN = re.compile(
+    r"(?i)(action:|todo:|owner:|decision:|decided:|approved:|risk:|blocker:|issue:|question:|q:)"
+)
 
 
 def extract_structured_meeting_data(raw_content: str) -> ExtractionResult:
@@ -46,7 +49,7 @@ def extract_structured_meeting_data(raw_content: str) -> ExtractionResult:
 
 
 def _extract_with_rules(raw_content: str) -> ExtractionResult:
-    lines = [_normalize_line(line) for line in raw_content.splitlines()]
+    lines = [_normalize_line(line) for line in _split_into_segments(raw_content)]
     lines = [line for line in lines if line]
 
     decisions: list[InsightItem] = []
@@ -130,6 +133,32 @@ def _build_action_item(line: str) -> ActionItem:
         due_date=due_date,
         confidence=confidence,
     )
+
+
+def _split_into_segments(raw_content: str) -> list[str]:
+    segments: list[str] = []
+    for raw_line in raw_content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        matches = list(INLINE_LABEL_PATTERN.finditer(line))
+        if len(matches) <= 1:
+            segments.append(line)
+            continue
+
+        if matches[0].start() > 0:
+            leading = line[: matches[0].start()].strip(" -.;")
+            if leading:
+                segments.append(leading)
+
+        for index, match in enumerate(matches):
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(line)
+            segment = line[match.start() : end].strip(" -;")
+            if segment:
+                segments.append(segment)
+
+    return segments
 
 
 def _normalize_line(line: str) -> str:

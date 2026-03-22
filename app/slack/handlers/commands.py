@@ -1,5 +1,4 @@
 from app.domain.schemas.followthru import FollowThruChatRequest
-from app.domain.services.canvas_composer import create_draft_canvas
 from app.domain.services.draft_service import create_draft
 from app.domain.services.extraction_service import extract_structured_meeting_data
 from app.domain.services.followthru_service import (
@@ -68,12 +67,7 @@ def register_handlers(bolt_app) -> None:
         tracking_summary = _build_tracking_summary(extraction)
 
         if mode == "preview":
-            canvas_content = create_draft_canvas(extraction, preview_source_label)
-            say(
-                _build_preview_message(
-                    extraction.meeting_title, tracking_summary, canvas_content
-                )
-            )
+            say(_build_preview_message(extraction, tracking_summary))
             return
 
         if source is None:
@@ -152,23 +146,56 @@ def _resolve_source_label(source) -> str:
     return getattr(source_type, "value", "slack-command")
 
 
-def _build_preview_message(
-    meeting_title: str, tracking_summary: str, canvas_content: str
-) -> str:
-    preview = _truncate_for_slack(canvas_content.strip(), limit=2500)
-    title = meeting_title or "Untitled meeting"
-    return (
-        "Preview generated. No draft was created.\n"
-        f"Title: {title}.\n"
-        f"{tracking_summary}\n"
-        f"```{preview}```"
+def _build_preview_message(extraction, tracking_summary: str) -> str:
+    title = extraction.meeting_title or "Untitled meeting"
+    lines = [
+        "*Preview ready.* No draft was created.",
+        f"*Title:* {title}",
+        f"*Summary:* {tracking_summary}",
+    ]
+
+    if extraction.status_summary:
+        lines.append(f"*Status:* {extraction.status_summary}")
+    if extraction.priority_focus:
+        lines.append(f"*Priority focus:* {extraction.priority_focus}")
+
+    lines.extend(["", "*What FollowThru captured*"])
+
+    if extraction.decisions:
+        lines.append("*Decisions*")
+        lines.extend(f"- {item.content}" for item in extraction.decisions[:3])
+
+    if extraction.action_items:
+        lines.append("*Action items*")
+        for item in extraction.action_items[:5]:
+            detail_parts = []
+            if item.owner:
+                detail_parts.append(f"owner {item.owner}")
+            if item.due_date:
+                detail_parts.append(f"due {item.due_date.isoformat()}")
+            suffix = f" ({', '.join(detail_parts)})" if detail_parts else ""
+            lines.append(f"- {item.content}{suffix}")
+
+    attention_items = [
+        *(f"Risk: {item.content}" for item in extraction.risks[:3]),
+        *(f"Question: {item.content}" for item in extraction.open_questions[:3]),
+    ]
+    if attention_items:
+        lines.append("*Attention*")
+        lines.extend(f"- {item}" for item in attention_items)
+
+    if not extraction.decisions and not extraction.action_items and not attention_items:
+        lines.append(
+            "- No structured decisions, action items, or risks were detected yet."
+        )
+
+    lines.extend(
+        [
+            "",
+            "Use `/followthru publish <notes>` when you're ready to update the channel canvas.",
+        ]
     )
-
-
-def _truncate_for_slack(value: str, limit: int) -> str:
-    if len(value) <= limit:
-        return value
-    return value[: limit - 15].rstrip() + "\n...[truncated]"
+    return "\n".join(lines)
 
 
 def _strip_mention_tokens(text: str) -> str:

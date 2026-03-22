@@ -156,9 +156,11 @@ def test_followthru_preview_command_returns_canvas_preview(monkeypatch):
         command={"channel_id": "C123", "user_id": "U123", "text": "preview ship it"},
     )
 
-    assert "Preview generated. No draft was created." in messages[0]
-    assert "Title: Pilot Review." in messages[0]
-    assert "## Meeting Summary" in messages[0]
+    assert "*Preview ready.* No draft was created." in messages[0]
+    assert "*Title:* Pilot Review" in messages[0]
+    assert "*Action items*" in messages[0]
+    assert "Prepare demo (owner maya)" in messages[0]
+    assert "*Attention*" in messages[0]
 
 
 def test_followthru_draft_command_skips_slack_publication(monkeypatch):
