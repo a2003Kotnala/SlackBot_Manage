@@ -1,8 +1,8 @@
 [tool.poetry]
-name = "zmanage"
+name = "followthru"
 version = "1.0.0"
-description = "Slack-to-action-plan backend for extracting structured execution items from huddle notes."
-authors = ["ZManage Team <engineering@example.com>"]
+description = "FollowThru backend for extracting structured execution items and generating action canvases."
+authors = ["FollowThru Team <engineering@example.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.11"

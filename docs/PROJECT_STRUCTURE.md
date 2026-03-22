@@ -1,73 +1,70 @@
-# ZManage Structure
+# FollowThru Structure
 
-ZManage is a FastAPI backend that ingests Slack huddle notes or direct meeting text, extracts structured execution data, creates draft action canvases, and stores workflow state in SQLite locally and PostgreSQL in production.
+FollowThru is a FastAPI backend for turning Slack notes, chat prompts, and
+voice transcripts into action canvases backed by PostgreSQL.
 
 ## Top Level
 
-- `app/`: application source code
-- `app/api/`: HTTP route layer
-- `app/config.py`: environment settings and integration flags
-- `app/db/`: SQLAlchemy engine, models, sessions, and Alembic migrations
-- `app/domain/`: extraction schemas and workflow services
-- `app/integrations/`: Slack and OpenAI-compatible LLM client wrappers
-- `app/slack/`: Slack Bolt bootstrap, handlers, and source resolution
+- `app/`: application source
+- `app/api/`: HTTP routes
+- `app/config.py`: runtime configuration
+- `app/db/`: SQLAlchemy models, sessions, and Alembic migrations
+- `app/domain/`: schemas and workflow services
+- `app/integrations/`: OpenAI-compatible and Slack wrappers
+- `app/slack/`: Bolt registration and Slack-specific handlers
 - `scripts/`: local development helpers
-- `tests/`: unit tests
-- `docs/`: project and running documentation
+- `docs/`: runbooks and release notes
+- `tests/`: unit coverage
 
-## Workflow Phases
+## Main Runtime Surfaces
 
-1. Source capture
-   Slack command payloads or direct text API requests enter through `app/api/routes/`.
-2. Source normalization
-   `app/slack/services/source_resolver.py` persists Slack canvases or manual text as `Source` rows.
-3. Extraction
-   `app/domain/services/extraction_service.py` uses a configured OpenAI-compatible LLM and deterministic parsing otherwise.
-4. Draft generation
-   `app/domain/services/canvas_composer.py` builds canvas markdown and `app/domain/services/draft_service.py` persists the draft and extracted items.
-5. Publication
-   Slack canvas upload is attempted only when credentials, channel context, and the publish flag are available.
+- `GET /health`
+- `GET /db-health`
+- `GET /api/v1/followthru/capabilities`
+- `POST /api/v1/followthru/chat`
+- `POST /api/v1/followthru/voice-command`
+- `POST /api/v1/workflows/preview`
+- `POST /api/v1/workflows/process-text`
+- `POST /slack/commands`
+- `POST /slack/interactions`
 
-## API Surface
-
-- `GET /health`: service metadata and integration readiness
-- `GET /db-health`: database connectivity probe
-- `POST /api/v1/workflows/preview`: extract and render a draft without persistence
-- `POST /api/v1/workflows/process-text`: persist a manual-text workflow
-- `POST /slack/commands`: Slack slash command entrypoint
-- `POST /slack/interactions`: Slack interaction entrypoint
-
-## Folder Details
+## Important Modules
 
 ### `app/api/`
 
-- `routes/health.py`: liveness and DB checks
-- `routes/workflows.py`: preview and process-text workflow APIs
+- `routes/followthru.py`: chat, voice-command, and capability endpoints
+- `routes/workflows.py`: preview and text-processing workflow APIs
+- `routes/health.py`: liveness and readiness
 - `routes/slack_commands.py`: Slack slash-command bridge
-- `routes/slack_interactions.py`: Slack interactions bridge
+- `routes/slack_interactions.py`: Slack interaction bridge
 
 ### `app/db/`
 
-- `base.py`: SQLAlchemy engine and declarative base
-- `session.py`: `SessionLocal` factory
-- `models/`: persistence models for users, sources, drafts, extracted items, and shares
-- `migrations/`: Alembic environment and versioned schema files
+- `models/source.py`: raw source capture, including `voice`
+- `models/draft.py`: generated draft metadata
+- `models/extracted_item.py`: normalized extracted entities
+- `models/chat_session.py`: persisted FollowThru chat sessions
+- `models/chat_message.py`: persisted FollowThru chat messages
+- `migrations/versions/20260319_0001_initial_schema.py`: initial workflow schema
+- `migrations/versions/20260323_0002_followthru_chat_and_indexes.py`: chat persistence and indexes
 
 ### `app/domain/`
 
-- `schemas/extraction.py`: extraction result schema
-- `schemas/workflow.py`: request/response models for workflow APIs
-- `services/extraction_service.py`: LLM-backed plus rule-based extraction
-- `services/canvas_composer.py`: canvas markdown builder
-- `services/draft_service.py`: draft persistence and optional Slack publishing
+- `schemas/extraction.py`: structured extraction contract
+- `schemas/workflow.py`: preview/process-text request and response models
+- `schemas/followthru.py`: chat and voice-command request and response models
+- `services/extraction_service.py`: LLM-backed or deterministic extraction
+- `services/canvas_composer.py`: Slack canvas markdown generation
+- `services/draft_service.py`: draft persistence and optional Slack publication
+- `services/followthru_service.py`: FollowThru chat, voice-command, session persistence, and orchestration
 
 ### `app/integrations/`
 
-- `openai_client.py`: direct OpenAI-compatible HTTP integration
-- `slack_client.py`: Slack SDK wrapper
+- `openai_client.py`: OpenAI-compatible extraction and chat completion wrapper
+- `slack_client.py`: Slack Web API wrapper for canvases and file lookup
 
 ### `app/slack/`
 
-- `bolt_app.py`: Slack Bolt app creation and FastAPI adapter
-- `handlers/commands.py`: `/zmanage` command workflow
-- `services/source_resolver.py`: source persistence helpers
+- `bolt_app.py`: Bolt app bootstrap
+- `handlers/commands.py`: `/followthru`, `/zmanage`, and `app_mention` registration
+- `services/source_resolver.py`: source persistence helpers for Slack-originated content

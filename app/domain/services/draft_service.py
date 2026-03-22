@@ -133,7 +133,9 @@ def _map_confidence(value):
     return Confidence[value.value]
 
 
-def _resolve_owner_user_id(owner_user_id: str | UUID | None, source: Source) -> UUID | None:
+def _resolve_owner_user_id(
+    owner_user_id: str | UUID | None, source: Source
+) -> UUID | None:
     if isinstance(owner_user_id, UUID):
         return owner_user_id
     if isinstance(owner_user_id, str):

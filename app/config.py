@@ -1,7 +1,15 @@
-from pydantic import AliasChoices, Field, computed_field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-DEFAULT_DATABASE_URL = "sqlite:///./zmanage.db"
+DEFAULT_DATABASE_URL = (
+    "postgresql+psycopg2://postgres:postgres@localhost:5432/followthru"
+)
 DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
@@ -37,10 +45,12 @@ def _normalize_optional_value(value: str | None) -> str | None:
 
 
 class Settings(BaseSettings):
-    app_name: str = "ZManage"
+    app_name: str = "FollowThru"
     app_version: str = "1.0.0"
     app_env: str = "development"
     log_level: str = "INFO"
+    database_pool_size: int = 5
+    database_max_overflow: int = 10
     database_url: str | None = Field(
         default=None,
         validation_alias=AliasChoices("DATABASE_URL", "SUPABASE_DB_URL"),
@@ -54,11 +64,15 @@ class Settings(BaseSettings):
     llm_provider: str = "openai-compatible"
     llm_base_url: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("LLM_BASE_URL", "OPENAI_BASE_URL", "GEMINI_BASE_URL"),
+        validation_alias=AliasChoices(
+            "LLM_BASE_URL", "OPENAI_BASE_URL", "GEMINI_BASE_URL"
+        ),
     )
     llm_api_key: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("LLM_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY"),
+        validation_alias=AliasChoices(
+            "LLM_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY"
+        ),
     )
     llm_model: str | None = Field(
         default=None,
@@ -69,6 +83,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS", "OPENAI_TIMEOUT_SECONDS"),
     )
     slack_publish_drafts: bool = True
+    primary_slack_command: str = "/followthru"
+    legacy_slack_command: str = "/zmanage"
+    followthru_chat_history_limit: int = 12
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -120,6 +137,11 @@ class Settings(BaseSettings):
     @property
     def is_sqlite(self) -> bool:
         return self.resolved_database_url.startswith("sqlite")
+
+    @computed_field
+    @property
+    def is_postgresql(self) -> bool:
+        return self.resolved_database_url.startswith("postgresql")
 
     @computed_field
     @property

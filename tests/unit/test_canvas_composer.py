@@ -9,7 +9,7 @@ from app.domain.schemas.extraction import (
 from app.domain.services.canvas_composer import create_draft_canvas
 
 
-def test_create_draft_canvas_renders_tracking_tables_and_checklist():
+def test_create_draft_canvas_renders_slack_native_tracking_layout():
     extraction = ExtractionResult(
         meeting_title="Launch Readiness Review",
         summary="Reviewed launch readiness.",
@@ -17,7 +17,9 @@ def test_create_draft_canvas_renders_tracking_tables_and_checklist():
         status_summary="Execution in progress",
         priority_focus="Prepare beta checklist",
         next_review_date=date(2026, 3, 20),
-        decisions=[InsightItem(content="Launch internal beta", confidence=Confidence.high)],
+        decisions=[
+            InsightItem(content="Launch internal beta", confidence=Confidence.high)
+        ],
         action_items=[
             ActionItem(
                 content="Prepare beta checklist",
@@ -45,12 +47,37 @@ def test_create_draft_canvas_renders_tracking_tables_and_checklist():
 
     canvas = create_draft_canvas(extraction, "manual-demo")
 
-    assert "## Tracking Snapshot" in canvas
-    assert "| Metric | Value |" in canvas
-    assert "## Action Tracker" in canvas
-    assert "| ID | Action | Owner | Due | Status | Priority | Notes |" in canvas
+    assert "# Launch Readiness Review" in canvas
+    assert "## Meeting Summary" in canvas
+    assert ":traffic_light: *Status:* Execution in progress" in canvas
+    assert ":busts_in_silhouette: *Owners:* *maya*" in canvas
+    assert "## Action Items" in canvas
+    assert "| S.No | Task | Owner | Due | Status | Priority |" in canvas
     assert "Prepare beta checklist" in canvas
-    assert "## Attention Log" in canvas
-    assert "## Decision Register" in canvas
-    assert "## Next Review Checklist" in canvas
-    assert "- [ ] Confirm 1 action item(s) have clear owners and dates." in canvas
+    assert "## Open Risks & Questions" in canvas
+    assert "## Key Decisions" in canvas
+    assert "`----------` 0% (0/1 complete)" in canvas
+    assert "**1**<br>To Do" in canvas
+    assert "- :grey_question:" not in canvas
+    assert "- :large_yellow_circle:" not in canvas
+
+
+def test_create_draft_canvas_deduplicates_summary_content():
+    extraction = ExtractionResult(
+        meeting_title="Roadmap Sync - Product, Design, Engineering",
+        summary="Roadmap Sync - Product, Design, Engineering Summary:",
+        what_happened=(
+            "Roadmap Sync - Product, Design, Engineering Summary: "
+            "The team reviewed roadmap priorities and agreed to shift execution focus."
+        ),
+        confidence_overall=Confidence.high,
+    )
+
+    canvas = create_draft_canvas(extraction, "manual-demo")
+
+    assert "## Meeting Summary" in canvas
+    assert " Roadmap Sync - Product, Design, Engineering Summary:" not in canvas
+    assert (
+        "The team reviewed roadmap priorities and agreed to shift execution focus."
+        in canvas
+    )

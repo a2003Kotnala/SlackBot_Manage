@@ -14,6 +14,13 @@ def health_check():
         "service": settings.app_name,
         "version": settings.app_version,
         "environment": settings.app_env,
+        "database_target": "postgresql" if settings.is_postgresql else "sqlite",
+        "bot": {
+            "name": settings.app_name,
+            "primary_slack_command": settings.primary_slack_command,
+            "legacy_slack_command": settings.legacy_slack_command,
+            "voice_transcript_commands_enabled": True,
+        },
         "integrations": {
             "slack_configured": settings.slack_configured,
             "llm_provider": settings.llm_provider,
