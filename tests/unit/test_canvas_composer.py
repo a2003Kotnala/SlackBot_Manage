@@ -52,7 +52,7 @@ def test_create_draft_canvas_renders_slack_native_tracking_layout():
     assert ":traffic_light: *Status:* Execution in progress" in canvas
     assert ":busts_in_silhouette: *Owners:* *maya*" in canvas
     assert "## Action Items" in canvas
-    assert "| S.No | Task | Owner | Due | Status | Priority |" in canvas
+    assert "| # | Task | Owner | Due | State | Pri |" in canvas
     assert "Prepare beta checklist" in canvas
     assert "## Open Risks & Questions" in canvas
     assert "## Key Decisions" in canvas
@@ -81,3 +81,56 @@ def test_create_draft_canvas_deduplicates_summary_content():
         "The team reviewed roadmap priorities and agreed to shift execution focus."
         in canvas
     )
+
+
+def test_create_draft_canvas_truncates_long_status_and_summary():
+    long_status = (
+        "The backend is largely ready with transcript fallback and improved DM "
+        "workflow implemented, but significant unknowns remain around live "
+        "Slack transcript access, permissions, and publishing behavior."
+    )
+    long_summary = " ".join(
+        f"Sentence {index} covers launch readiness, blockers, owners, and next steps."
+        for index in range(1, 13)
+    )
+    extraction = ExtractionResult(
+        meeting_title="FollowThru Launch Review",
+        summary=long_summary,
+        what_happened=long_summary,
+        status_summary=long_status,
+        priority_focus=(
+            "Prove the live Slack flow works, clean up setup, and document the "
+            "happy path for the team before rollout."
+        ),
+        confidence_overall=Confidence.high,
+    )
+
+    canvas = create_draft_canvas(extraction, "manual-demo")
+
+    assert ":traffic_light: *Status:*" in canvas
+    assert "publishing behavior." not in canvas
+    assert "permissions..." in canvas
+    assert "Sentence 12 covers launch readiness" not in canvas
+    assert (
+        "- Sentence 1 covers launch readiness, blockers, owners, and next steps."
+        in canvas
+    )
+
+
+def test_create_draft_canvas_supports_compact_dm_header():
+    extraction = ExtractionResult(
+        meeting_title="FollowThru Launch Readiness Review",
+        summary="Reviewed launch readiness for the DM flow.",
+        confidence_overall=Confidence.high,
+    )
+
+    canvas = create_draft_canvas(
+        extraction,
+        "text",
+        title_override="Launch Readiness Review | 23 Mar 02:49 PM",
+        compact_header=True,
+    )
+
+    assert "# Launch Readiness Review | 23 Mar 02:49 PM" in canvas
+    assert "_Text | High confidence_" in canvas
+    assert "Action Canvas generated from" not in canvas

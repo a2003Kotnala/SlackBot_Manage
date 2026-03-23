@@ -7,6 +7,7 @@ from app.domain.schemas.extraction import (
     ExtractionResult,
     InsightItem,
 )
+from app.domain.schemas.followthru import FollowThruMode
 from app.slack.handlers.commands import register_handlers
 
 
@@ -110,7 +111,8 @@ def test_followthru_command_reports_missing_source(monkeypatch):
         {
             "text": (
                 "No recent huddle notes canvas found. "
-                "Finish the huddle notes first, or DM FollowThru with pasted transcript text or a text file."
+                "Finish the huddle notes first, or DM FollowThru with pasted "
+                "transcript text or a text file."
             ),
             "response_type": "ephemeral",
         }
@@ -146,7 +148,10 @@ def test_followthru_preview_command_returns_canvas_preview(monkeypatch):
     monkeypatch.setattr(
         "app.slack.handlers.commands.resolve_latest_huddle_notes_canvas",
         lambda *_args, **_kwargs: SimpleNamespace(
-            raw_content_reference="Decision: Ship the pilot.\nAction: Prepare demo @maya 2026-03-20",
+            raw_content_reference=(
+                "Decision: Ship the pilot.\n"
+                "Action: Prepare demo @maya 2026-03-20"
+            ),
             source_type=SimpleNamespace(value="huddle_notes"),
         ),
     )
@@ -194,7 +199,8 @@ def test_followthru_command_redirects_inline_channel_text_to_dm():
     assert responses == [
         {
             "text": (
-                "Channel commands only work from the latest huddle notes for that channel. "
+                "Channel commands only work from the latest huddle notes "
+                "for that channel. "
                 "To process custom transcript text or a file, DM FollowThru instead."
             ),
             "response_type": "ephemeral",
@@ -219,9 +225,11 @@ def test_followthru_help_command_returns_usage():
                 "*FollowThru command guide*\n"
                 "In channels:\n"
                 "- `/followthru` previews the latest huddle notes for this channel.\n"
-                "- `/followthru publish` publishes the latest huddle notes to the channel canvas.\n"
+                "- `/followthru publish` publishes the latest huddle notes "
+                "to the channel canvas.\n"
                 "In DMs:\n"
-                "- Paste a transcript or upload a plain-text transcript file for a private preview.\n"
+                "- Paste a transcript or upload a plain-text transcript file "
+                "to create a private canvas workflow.\n"
                 "FollowThru keeps command output private to the person who runs it."
             ),
             "response_type": "ephemeral",
@@ -260,7 +268,58 @@ def test_followthru_app_mention_uses_chat_service(monkeypatch):
     assert messages == [("Handled: preview these notes", "1710000000.000100")]
 
 
-def test_followthru_dm_message_returns_private_preview(monkeypatch):
+def test_followthru_dm_message_defaults_to_publish_workflow(monkeypatch):
+    app = FakeBoltApp()
+    register_handlers(app)
+
+    captured_messages: list[str] = []
+    updated_messages: list[tuple[str, str, str]] = []
+
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.handle_followthru_chat",
+        lambda payload: captured_messages.append(payload.message)
+        or SimpleNamespace(
+            mode=FollowThruMode.publish,
+            reply=(
+                "Published Pilot Review. 1 action item(s), 0 attention item(s). "
+                "Slack canvas ID: F123."
+            ),
+            slack_canvas_id="F123",
+            draft_canvas_markdown="# Pilot Review",
+            draft_title="Pilot Review",
+            extraction=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.update_message",
+        lambda channel_id, message_ts, text: updated_messages.append(
+            (channel_id, message_ts, text)
+        ),
+    )
+
+    messages: list[str] = []
+    app.event_handlers["message"](
+        event={
+            "channel_type": "im",
+            "user": "U123",
+            "channel": "D123",
+            "ts": "1710000000.000200",
+            "text": "Decision: Ship the pilot. Action: Prepare demo @maya",
+        },
+        say=lambda text: messages.append(text)
+        or {"channel": "D123", "ts": "1710000000.000200"},
+    )
+
+    assert captured_messages == [
+        "publish Decision: Ship the pilot. Action: Prepare demo @maya"
+    ]
+    assert "Processing your transcript" in messages[0]
+    assert updated_messages[0][0:2] == ("D123", "1710000000.000200")
+    assert "Canvas ready." in updated_messages[0][2]
+    assert "Slack canvas ID: F123." in updated_messages[0][2]
+
+
+def test_followthru_dm_preview_command_returns_preview(monkeypatch):
     app = FakeBoltApp()
     register_handlers(app)
 
@@ -280,8 +339,20 @@ def test_followthru_dm_message_returns_private_preview(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "app.slack.handlers.commands.extract_structured_meeting_data",
-        lambda _: extraction,
+        "app.slack.handlers.commands.handle_followthru_chat",
+        lambda _payload: SimpleNamespace(
+            mode=FollowThruMode.preview,
+            reply="Preview ready",
+            extraction=extraction,
+            slack_canvas_id=None,
+            draft_canvas_markdown="# Preview Canvas",
+            draft_title=None,
+        ),
+    )
+    updated_messages: list[str] = []
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.update_message",
+        lambda _channel_id, _message_ts, text: updated_messages.append(text),
     )
 
     messages: list[str] = []
@@ -290,33 +361,49 @@ def test_followthru_dm_message_returns_private_preview(monkeypatch):
             "channel_type": "im",
             "user": "U123",
             "channel": "D123",
-            "ts": "1710000000.000200",
-            "text": "Decision: Ship the pilot. Action: Prepare demo @maya",
+            "ts": "1710000000.000250",
+            "text": "preview Decision: Ship the pilot. Action: Prepare demo @maya",
         },
-        say=lambda text: messages.append(text),
+        say=lambda text: messages.append(text)
+        or {"channel": "D123", "ts": "1710000000.000250"},
     )
 
-    assert "*Preview ready.* No draft was created." in messages[0]
-    assert "*Action items*" in messages[0]
+    assert "Processing your transcript" in messages[0]
+    assert "*Preview ready.* No draft was created." in updated_messages[0]
+    assert "Use `publish` in this DM to create a Slack canvas here" in updated_messages[
+        0
+    ]
 
 
-def test_followthru_dm_file_downloads_supported_text(monkeypatch):
+def test_followthru_dm_file_downloads_supported_text_and_shows_local_canvas(
+    monkeypatch,
+):
     app = FakeBoltApp()
     register_handlers(app)
-
-    extraction = ExtractionResult(
-        meeting_title="Pilot Review",
-        decisions=[InsightItem(content="Ship the pilot.", confidence=Confidence.high)],
-        confidence_overall=Confidence.high,
-    )
+    updated_messages: list[str] = []
 
     monkeypatch.setattr(
         "app.slack.handlers.commands.slack_client.download_text_file",
         lambda _url: "Decision: Ship the pilot.",
     )
     monkeypatch.setattr(
-        "app.slack.handlers.commands.extract_structured_meeting_data",
-        lambda _: extraction,
+        "app.slack.handlers.commands.handle_followthru_chat",
+        lambda payload: SimpleNamespace(
+            mode=FollowThruMode.draft,
+            reply=(
+                "Saved local draft Pilot Review. 1 action item(s), "
+                "0 attention item(s)."
+            ),
+            extraction=None,
+            slack_canvas_id=None,
+            draft_canvas_markdown="# Pilot Review\n## Action Items\n- Prepare demo",
+            draft_title="Pilot Review",
+            normalized_input=payload.message,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.update_message",
+        lambda _channel_id, _message_ts, text: updated_messages.append(text),
     )
 
     messages: list[str] = []
@@ -336,7 +423,12 @@ def test_followthru_dm_file_downloads_supported_text(monkeypatch):
                 }
             ],
         },
-        say=lambda text: messages.append(text),
+        say=lambda text: messages.append(text)
+        or {"channel": "D123", "ts": "1710000000.000300"},
     )
 
-    assert "*Preview ready.* No draft was created." in messages[0]
+    assert "Processing your transcript" in messages[0]
+    assert "Draft ready." in updated_messages[0]
+    assert "Saved local draft Pilot Review" in updated_messages[0]
+    assert "*Canvas draft*" in updated_messages[0]
+    assert "## Action Items" in updated_messages[0]

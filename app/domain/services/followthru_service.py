@@ -20,7 +20,10 @@ from app.domain.schemas.followthru import (
     FollowThruVoiceCommandRequest,
 )
 from app.domain.services.canvas_composer import create_draft_canvas
-from app.domain.services.draft_service import create_draft
+from app.domain.services.draft_service import (
+    build_canvas_title_for_channel,
+    create_draft,
+)
 from app.domain.services.extraction_service import extract_structured_meeting_data
 from app.integrations.openai_client import openai_client
 from app.logger import logger
@@ -349,7 +352,17 @@ def _execute_canvas_request(
     tracking_summary = _build_tracking_summary(extraction)
 
     if parsed.mode == FollowThruMode.preview:
-        canvas = create_draft_canvas(extraction, source_label)
+        compact_header = bool(channel_id and channel_id.startswith("D"))
+        canvas = create_draft_canvas(
+            extraction,
+            source_label,
+            title_override=build_canvas_title_for_channel(
+                extraction.meeting_title,
+                channel_id,
+                datetime.now(),
+            ),
+            compact_header=compact_header,
+        )
         return FollowThruExecution(
             mode=FollowThruMode.preview,
             reply=(

@@ -1,5 +1,4 @@
 import httpx
-
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
@@ -25,13 +24,19 @@ class SlackClient:
         return response["messages"]
 
     def list_files(
-        self, channel_id: str, ts_from: str | None = None, types: str = "canvases"
+        self,
+        channel_id: str,
+        ts_from: str | None = None,
+        types: str | None = None,
     ):
-        response = self.client.files_list(
-            channel=channel_id,
-            ts_from=ts_from,
-            types=types,
-        )
+        request = {
+            "channel": channel_id,
+            "ts_from": ts_from,
+        }
+        if types:
+            request["types"] = types
+
+        response = self.client.files_list(**request)
         return response["files"]
 
     def get_file_content(self, file_id: str):
@@ -46,6 +51,10 @@ class SlackClient:
             )
             response.raise_for_status()
             return response.text
+
+    def update_message(self, channel_id: str, message_ts: str, text: str):
+        response = self.client.chat_update(channel=channel_id, ts=message_ts, text=text)
+        return {"channel": response["channel"], "ts": response["ts"], "text": text}
 
     def upload_canvas(self, channel_id: str, content: str, title: str):
         document_content = {"type": "markdown", "markdown": content}

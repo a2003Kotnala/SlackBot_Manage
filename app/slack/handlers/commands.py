@@ -1,4 +1,7 @@
-from app.domain.schemas.followthru import FollowThruChatRequest
+from app.domain.schemas.followthru import (
+    FollowThruChatRequest,
+    FollowThruMode,
+)
 from app.domain.services.draft_service import create_draft
 from app.domain.services.extraction_service import extract_structured_meeting_data
 from app.domain.services.followthru_service import (
@@ -7,6 +10,7 @@ from app.domain.services.followthru_service import (
     handle_followthru_chat,
 )
 from app.integrations.slack_client import slack_client
+from app.logger import logger
 from app.slack.services.source_resolver import (
     resolve_latest_huddle_notes_canvas,
 )
@@ -17,13 +21,15 @@ HELP_TEXT = (
     "- `/followthru` previews the latest huddle notes for this channel.\n"
     "- `/followthru publish` publishes the latest huddle notes to the channel canvas.\n"
     "In DMs:\n"
-    "- Paste a transcript or upload a plain-text transcript file for a private preview.\n"
+    "- Paste a transcript or upload a plain-text transcript file "
+    "to create a private canvas workflow.\n"
     "FollowThru keeps command output private to the person who runs it."
 )
 
 MISSING_SOURCE_MESSAGE = (
     "No recent huddle notes canvas found. "
-    "Finish the huddle notes first, or DM FollowThru with pasted transcript text or a text file."
+    "Finish the huddle notes first, or DM FollowThru with pasted transcript "
+    "text or a text file."
 )
 
 CHANNEL_TEXT_REDIRECT_MESSAGE = (
@@ -33,9 +39,25 @@ CHANNEL_TEXT_REDIRECT_MESSAGE = (
 
 DM_HELP_TEXT = (
     "*FollowThru DM guide*\n"
-    "- Paste transcript text directly in this DM for a private preview.\n"
-    "- Upload a plain-text transcript file and FollowThru will read it privately.\n"
-    "- To publish a finalized result to a channel canvas, go to that channel and run `/followthru publish`."
+    "- Paste transcript text or upload a plain-text transcript file and "
+    "FollowThru will create a canvas in this DM when possible.\n"
+    "- Start with `preview` if you only want a private preview.\n"
+    "- Start with `draft` to save a local draft without publishing.\n"
+    "- Start with `publish` to force a Slack canvas publish in this DM."
+)
+
+DM_PREVIEW_FOOTER = (
+    "Use `publish` in this DM to create a Slack canvas here, "
+    "or `draft` to save a local draft without publishing."
+)
+DM_CANVAS_MARKDOWN_LIMIT = 3500
+DM_PROCESSING_MESSAGE = (
+    ":hourglass_flowing_sand: *Processing your transcript...*\n"
+    "_Finding decisions, linking owners, and shaping your canvas._"
+)
+DM_FAILURE_MESSAGE = (
+    ":warning: *I hit a snag while processing that transcript.*\n"
+    "_Please try again in a moment._"
 )
 
 
@@ -132,18 +154,28 @@ def register_handlers(bolt_app) -> None:
         if lowered in {"help", "hi", "hello"}:
             say(text=DM_HELP_TEXT)
             return
-        if lowered.startswith("publish"):
-            say(
-                text=(
-                    "DMs are for private transcript review. "
-                    "When you're ready to publish, go to the target channel and run `/followthru publish`."
+
+        status_message = say(text=DM_PROCESSING_MESSAGE)
+        message_ref = _extract_message_ref(status_message, event["channel"])
+
+        try:
+            response = handle_followthru_chat(
+                FollowThruChatRequest(
+                    message=_normalize_dm_request(dm_text),
+                    user_id=event["user"],
+                    channel_id=event["channel"],
+                    thread_ts=event.get("thread_ts") or event["ts"],
                 )
             )
+            final_text = _build_dm_followthru_message(response)
+        except Exception:
+            logger.exception("Failed to process FollowThru DM transcript")
+            final_text = DM_FAILURE_MESSAGE
+
+        if _update_dm_status_message(message_ref, final_text):
             return
 
-        extraction = extract_structured_meeting_data(dm_text)
-        tracking_summary = _build_tracking_summary(extraction)
-        say(text=_build_preview_message(extraction, tracking_summary))
+        say(text=final_text)
 
 
 def _parse_command_text(text: str) -> tuple[str, str]:
@@ -169,7 +201,11 @@ def _resolve_source_label(source) -> str:
     return getattr(source_type, "value", "slack-command")
 
 
-def _build_preview_message(extraction, tracking_summary: str) -> str:
+def _build_preview_message(
+    extraction,
+    tracking_summary: str,
+    footer: str | None = None,
+) -> str:
     title = extraction.meeting_title or "Untitled meeting"
     lines = [
         "*Preview ready.* No draft was created.",
@@ -215,7 +251,11 @@ def _build_preview_message(extraction, tracking_summary: str) -> str:
     lines.extend(
         [
             "",
-            "Use `/followthru publish` in the channel when you're ready to update the channel canvas.",
+            footer
+            or (
+                "Use `/followthru publish` in the channel when you're ready "
+                "to update the channel canvas."
+            ),
         ]
     )
     return "\n".join(lines)
@@ -251,6 +291,122 @@ def _build_dm_source_text(event) -> str:
     if unsupported_files and not text_parts and not file_text_parts:
         return ""
     return "\n\n".join(part for part in [*text_parts, *file_text_parts] if part)
+
+
+def _normalize_dm_request(dm_text: str) -> str:
+    normalized = dm_text.strip()
+    lowered = normalized.lower()
+    if any(
+        lowered.startswith(prefix)
+        for prefix in (
+            "help",
+            "what can you do",
+            "capabilities",
+            "how do i use",
+            "preview",
+            "show preview",
+            "dry run",
+            "generate preview",
+            "draft",
+            "save draft",
+            "create draft",
+            "publish",
+            "ship it",
+            "update canvas",
+            "send to canvas",
+            "push to canvas",
+        )
+    ):
+        return normalized
+    return f"publish {normalized}"
+
+
+def _build_dm_followthru_message(response) -> str:
+    if response.mode == FollowThruMode.help:
+        return DM_HELP_TEXT
+
+    if response.mode == FollowThruMode.preview and response.extraction:
+        return _build_preview_message(
+            response.extraction,
+            _build_tracking_summary(response.extraction),
+            footer=DM_PREVIEW_FOOTER,
+        )
+
+    lines = [_build_dm_completion_banner(response), "", response.reply]
+    if response.draft_title and response.draft_title not in response.reply:
+        lines.append(f"*Title:* {response.draft_title}")
+
+    if not response.slack_canvas_id and response.draft_canvas_markdown:
+        canvas_markdown = response.draft_canvas_markdown.strip()
+        if len(canvas_markdown) > DM_CANVAS_MARKDOWN_LIMIT:
+            canvas_markdown = (
+                canvas_markdown[:DM_CANVAS_MARKDOWN_LIMIT].rstrip() + "\n..."
+            )
+            lines.append(
+                "_Canvas markdown is truncated in chat, but the full draft "
+                "is stored by FollowThru._"
+            )
+
+        lines.extend(["", "*Canvas draft*", f"```{canvas_markdown}```"])
+
+    return "\n".join(lines)
+
+
+def _build_dm_completion_banner(response) -> str:
+    if response.slack_canvas_id:
+        return (
+            ":sparkles: *Canvas ready.*\n"
+            "_Done creating it. Hope you enjoyed it. See you soon._"
+        )
+    if response.mode in {FollowThruMode.draft, FollowThruMode.publish}:
+        return (
+            ":spiral_note_pad: *Draft ready.*\n"
+            "_Canvas is prepared. Hope you enjoyed it. See you soon._"
+        )
+    return ":white_check_mark: *Done.*"
+
+
+def _extract_message_ref(
+    message_response, fallback_channel: str | None = None
+) -> dict[str, str] | None:
+    if message_response is None:
+        return None
+
+    channel_id = _response_value(message_response, "channel") or fallback_channel
+    message_ts = _response_value(message_response, "ts")
+    if not channel_id or not message_ts:
+        return None
+    return {"channel": channel_id, "ts": message_ts}
+
+
+def _response_value(message_response, key: str) -> str | None:
+    if isinstance(message_response, dict):
+        return message_response.get(key)
+
+    getter = getattr(message_response, "get", None)
+    if callable(getter):
+        value = getter(key)
+        if value is not None:
+            return value
+
+    try:
+        return message_response[key]
+    except Exception:
+        return getattr(message_response, key, None)
+
+
+def _update_dm_status_message(message_ref: dict[str, str] | None, text: str) -> bool:
+    if not message_ref:
+        return False
+
+    try:
+        slack_client.update_message(message_ref["channel"], message_ref["ts"], text)
+        return True
+    except Exception:
+        logger.warning(
+            "Failed to update DM status message; sending a new message instead"
+        )
+        return False
 
 
 def _extract_supported_file_text(file_info) -> str | None:

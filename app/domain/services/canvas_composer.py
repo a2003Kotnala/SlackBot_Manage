@@ -3,15 +3,23 @@ from datetime import date, datetime
 
 from app.domain.schemas.extraction import ActionItem, ExtractionResult, InsightItem
 
+STATUS_MAX_WORDS = 24
+PRIORITY_MAX_WORDS = 18
+SUMMARY_MAX_WORDS = 95
+SUMMARY_BULLET_TARGET_WORDS = 32
+
 
 def create_draft_canvas(
-    extraction: ExtractionResult, source_label: str = "huddle_notes"
+    extraction: ExtractionResult,
+    source_label: str = "huddle_notes",
+    title_override: str | None = None,
+    compact_header: bool = False,
 ) -> str:
-    title = (
+    title = title_override or (
         extraction.meeting_title or f"Meeting - {datetime.now().strftime('%Y-%m-%d')}"
     )
     sections = [
-        build_meta_section(extraction, source_label, title),
+        build_meta_section(extraction, source_label, title, compact_header),
         divider(),
         build_summary_section(extraction),
         divider(),
@@ -47,11 +55,11 @@ def fmt_due(due_date: date | None) -> str:
         return italic("TBD")
 
     delta = (due_date - date.today()).days
-    formatted = due_date.strftime("%d %b %Y")
+    formatted = due_date.strftime("%d %b")
     if delta < 0:
-        return f":rotating_light: *{formatted}* _(overdue)_"
+        return f":rotating_light: {formatted}"
     if delta <= 3:
-        return f":warning: *{formatted}* _(in {delta}d)_"
+        return f":warning: {formatted}"
     return formatted
 
 
@@ -65,11 +73,15 @@ def progress_bar(done: int, total: int, width: int = 10) -> str:
 
 
 def build_meta_section(
-    extraction: ExtractionResult, source_label: str, title: str
+    extraction: ExtractionResult,
+    source_label: str,
+    title: str,
+    compact_header: bool = False,
 ) -> str:
     owners = ", ".join(bold(owner) for owner in extraction.owners) or italic(
         "Unassigned"
     )
+    status_text = _compact_status_text(extraction.status_summary or "Needs review")
     next_review = (
         extraction.next_review_date.strftime("%d %b %Y")
         if extraction.next_review_date
@@ -78,22 +90,21 @@ def build_meta_section(
     return "\n".join(
         [
             header(title),
-            italic(
-                "Action Canvas generated from "
-                f"{source_label} | AI confidence: "
-                f"{_confidence_label(extraction.confidence_overall.value)}"
+            _build_header_subtitle(
+                source_label,
+                extraction.confidence_overall.value,
+                compact_header,
             ),
             "",
             (
                 f":calendar: {bold('Date:')} {datetime.now().strftime('%d %b %Y')}   "
-                f":traffic_light: {bold('Status:')} "
-                f"{extraction.status_summary or 'Needs review'}   "
+                f":traffic_light: {bold('Status:')} {status_text}   "
                 f":spiral_calendar_pad: {bold('Next review:')} {next_review}"
             ),
             "",
             (
                 f":dart: {bold('Priority focus:')} "
-                f"{extraction.priority_focus or 'Confirm next steps and owners.'}"
+                f"{_compact_priority_focus(extraction.priority_focus)}"
             ),
             "",
             f":busts_in_silhouette: {bold('Owners:')} {owners}",
@@ -102,12 +113,16 @@ def build_meta_section(
 
 
 def build_summary_section(extraction: ExtractionResult) -> str:
-    summary_text = _compose_summary_text(extraction)
+    summary_text = _truncate_summary_text(_compose_summary_text(extraction))
     lines = [
         header("Meeting Summary", 2),
         "",
-        summary_text or "No summary available.",
     ]
+    if not summary_text:
+        lines.append("No summary available.")
+        return "\n".join(lines)
+
+    lines.extend(f"- {item}" for item in _summary_bullets(summary_text))
     return "\n".join(lines)
 
 
@@ -130,7 +145,7 @@ def build_action_items_section(items: list[ActionItem]) -> str:
         "",
         progress_bar(done, total),
         "",
-        "| S.No | Task | Owner | Due | Status | Priority |",
+        "| # | Task | Owner | Due | State | Pri |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
     if not items:
@@ -219,14 +234,14 @@ def _escape_cell(value: str) -> str:
 def _owner_label(item: ActionItem) -> str:
     if item.owner:
         return item.owner
-    return ":eyes: Needs Review"
+    return ":eyes: Review"
 
 
 def _status_badge(item: ActionItem) -> str:
     mapping = {
-        "To Do": ":white_circle: To Do",
-        "In Progress": ":large_blue_circle: In Progress",
-        "Needs Review": ":eyes: Needs Review",
+        "To Do": ":white_circle: To do",
+        "In Progress": ":large_blue_circle: Doing",
+        "Needs Review": ":eyes: Review",
         "Blocked": ":no_entry: Blocked",
     }
     return mapping[_status_plain(item)]
@@ -248,9 +263,9 @@ def _status_plain(item: ActionItem) -> str:
 
 def _priority_badge(item: ActionItem) -> str:
     mapping = {
-        "High": ":red_circle: High",
-        "Medium": ":large_yellow_circle: Medium",
-        "Low": ":large_green_circle: Low",
+        "High": ":red_circle: H",
+        "Medium": ":large_yellow_circle: M",
+        "Low": ":large_green_circle: L",
     }
     return mapping[_priority_plain(item)]
 
@@ -288,6 +303,19 @@ def _confidence_label(value: str) -> str:
     return mapping[value]
 
 
+def _build_header_subtitle(
+    source_label: str, confidence_value: str, compact_header: bool
+) -> str:
+    confidence = _confidence_label(confidence_value)
+    if compact_header:
+        source_name = source_label.replace("_", " ").title()
+        return italic(f"{source_name} | {confidence} confidence")
+    return italic(
+        "Action Canvas generated from "
+        f"{source_label} | AI confidence: {confidence}"
+    )
+
+
 def _compose_summary_text(extraction: ExtractionResult) -> str:
     summary = _clean_summary_text(extraction.summary, extraction.meeting_title)
     details = _clean_summary_text(extraction.what_happened, extraction.meeting_title)
@@ -319,3 +347,75 @@ def _clean_summary_text(text: str, meeting_title: str) -> str:
         r"\bwhat happened\s*:\s*", "", cleaned, flags=re.IGNORECASE
     ).strip()
     return cleaned
+
+
+def _truncate_summary_text(text: str) -> str:
+    return _truncate_words(text, SUMMARY_MAX_WORDS)
+
+
+def _summary_bullets(text: str) -> list[str]:
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", text)
+        if sentence.strip()
+    ]
+    if not sentences:
+        return [text]
+
+    bullets: list[str] = []
+    current_parts: list[str] = []
+    current_words = 0
+
+    for sentence in sentences:
+        sentence_words = len(sentence.split())
+        if (
+            current_parts
+            and current_words + sentence_words > SUMMARY_BULLET_TARGET_WORDS
+        ):
+            bullets.append(" ".join(current_parts).strip())
+            current_parts = [sentence]
+            current_words = sentence_words
+            continue
+
+        current_parts.append(sentence)
+        current_words += sentence_words
+
+    if current_parts:
+        bullets.append(" ".join(current_parts).strip())
+
+    return bullets or [text]
+
+
+def _compact_status_text(text: str) -> str:
+    return _truncate_words(text, STATUS_MAX_WORDS)
+
+
+def _compact_priority_focus(text: str) -> str:
+    default = "Confirm next steps and owners."
+    return _truncate_words(text or default, PRIORITY_MAX_WORDS)
+
+
+def _truncate_words(text: str, max_words: int) -> str:
+    cleaned = " ".join(text.split())
+    if not cleaned:
+        return ""
+
+    words = cleaned.split()
+    if len(words) <= max_words:
+        return cleaned
+
+    truncated_words = words[:max_words]
+    while truncated_words and truncated_words[-1].lower().rstrip(",;:-") in {
+        "and",
+        "or",
+        "with",
+        "to",
+        "for",
+        "of",
+    }:
+        truncated_words.pop()
+
+    truncated = " ".join(truncated_words).rstrip(",;:-")
+    if truncated.endswith((".", "!", "?")):
+        return truncated
+    return f"{truncated}..."

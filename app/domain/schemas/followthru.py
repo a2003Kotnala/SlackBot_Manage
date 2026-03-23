@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 
 from app.domain.schemas.extraction import ExtractionResult
 
+FOLLOWTHRU_MAX_INPUT_LENGTH = 100000
+
 
 class FollowThruMode(str, enum.Enum):
     help = "help"
@@ -16,7 +18,7 @@ class FollowThruMode(str, enum.Enum):
 class FollowThruChatRequest(BaseModel):
     message: str = Field(
         min_length=1,
-        max_length=8000,
+        max_length=FOLLOWTHRU_MAX_INPUT_LENGTH,
         description="User message or instruction for FollowThru.",
     )
     session_id: str | None = None
@@ -28,7 +30,7 @@ class FollowThruChatRequest(BaseModel):
 class FollowThruVoiceCommandRequest(BaseModel):
     transcript: str = Field(
         min_length=1,
-        max_length=12000,
+        max_length=FOLLOWTHRU_MAX_INPUT_LENGTH,
         description="Speech-to-text transcript for a FollowThru voice command.",
     )
     session_id: str | None = None

@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from uuid import UUID
 
@@ -19,9 +20,20 @@ def create_draft(
     publish_to_slack: bool = True,
 ) -> tuple[Draft, str]:
     now = datetime.utcnow()
+    display_now = datetime.now()
     resolved_owner_user_id = _resolve_owner_user_id(owner_user_id, source)
-    canvas_content = create_draft_canvas(extraction, source.source_type.value)
-    canvas_title = _build_canvas_title(extraction.meeting_title, now)
+    compact_header = _uses_compact_canvas_title(source.slack_channel_id)
+    canvas_title = build_canvas_title_for_channel(
+        extraction.meeting_title,
+        source.slack_channel_id,
+        display_now,
+    )
+    canvas_content = create_draft_canvas(
+        extraction,
+        source.source_type.value,
+        title_override=canvas_title,
+        compact_header=compact_header,
+    )
     file = None
 
     should_publish = (
@@ -146,8 +158,51 @@ def _resolve_owner_user_id(
     return source.created_by
 
 
-def _build_canvas_title(meeting_title: str, now: datetime) -> str:
+def build_canvas_title_for_channel(
+    meeting_title: str,
+    channel_id: str | None,
+    now: datetime | None = None,
+) -> str:
+    current_time = now or datetime.now()
+    raw_title = (meeting_title or "").strip()
+    if _uses_compact_canvas_title(channel_id):
+        descriptor = _build_compact_descriptor(raw_title)
+        return f"{descriptor} | {current_time.strftime('%d %b %I:%M %p')}"
+    normalized = _normalize_meeting_title(raw_title, current_time)
+    return f"Action Canvas - {normalized[:80]}"
+
+
+def _normalize_meeting_title(meeting_title: str, now: datetime) -> str:
     normalized = (meeting_title or "").strip()
     if not normalized:
         normalized = f"Meeting - {now.strftime('%Y-%m-%d')}"
-    return f"Action Canvas - {normalized[:80]}"
+    return normalized
+
+
+def _build_compact_descriptor(meeting_title: str) -> str:
+    if not meeting_title:
+        return "Meeting Notes"
+
+    tokens = re.findall(r"[A-Za-z0-9']+", meeting_title)
+    if not tokens:
+        return "Meeting Notes"
+
+    stop_words = {
+        "a",
+        "an",
+        "and",
+        "for",
+        "in",
+        "of",
+        "on",
+        "the",
+        "to",
+        "with",
+    }
+    meaningful_tokens = [token for token in tokens if token.lower() not in stop_words]
+    descriptor_tokens = (meaningful_tokens or tokens)[:3]
+    return " ".join(descriptor_tokens)[:40] or "Meeting Notes"
+
+
+def _uses_compact_canvas_title(channel_id: str | None) -> bool:
+    return bool(channel_id and channel_id.startswith("D"))

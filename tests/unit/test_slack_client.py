@@ -9,6 +9,7 @@ class FakeSlackClient:
         self.created = []
         self.edited = []
         self.info_requests = []
+        self.updated_messages = []
 
     def conversations_canvases_create(self, **kwargs):
         self.created.append(kwargs)
@@ -21,6 +22,10 @@ class FakeSlackClient:
     def canvases_edit(self, **kwargs):
         self.edited.append(kwargs)
         return {"ok": True}
+
+    def chat_update(self, **kwargs):
+        self.updated_messages.append(kwargs)
+        return {"channel": kwargs["channel"], "ts": kwargs["ts"], "ok": True}
 
 
 def _slack_error(error: str) -> SlackApiError:
@@ -77,3 +82,28 @@ def test_upload_canvas_updates_existing_channel_canvas():
     assert fake.info_requests == [{"channel": "C123"}]
     assert fake.edited[0]["canvas_id"] == "F456"
     assert fake.edited[0]["changes"][0]["operation"] == "replace"
+
+
+def test_update_message_uses_chat_update():
+    wrapper = SlackClient()
+    fake = FakeSlackClient()
+    wrapper.client = fake
+
+    result = wrapper.update_message(
+        channel_id="D123",
+        message_ts="1710000000.000200",
+        text=":sparkles: Canvas ready.",
+    )
+
+    assert result == {
+        "channel": "D123",
+        "ts": "1710000000.000200",
+        "text": ":sparkles: Canvas ready.",
+    }
+    assert fake.updated_messages == [
+        {
+            "channel": "D123",
+            "ts": "1710000000.000200",
+            "text": ":sparkles: Canvas ready.",
+        }
+    ]

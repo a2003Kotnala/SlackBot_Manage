@@ -17,8 +17,44 @@ RISK_PREFIXES = ("risk:", "blocker:", "issue:")
 QUESTION_PREFIXES = ("question:", "q:")
 DATE_PATTERN = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 OWNER_PATTERN = re.compile(r"@([A-Za-z0-9._-]+)")
+SPEAKER_PREFIX_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9 ._-]{0,30}:\s*")
 INLINE_LABEL_PATTERN = re.compile(
     r"(?i)(action:|todo:|owner:|decision:|decided:|approved:|risk:|blocker:|issue:|question:|q:)"
+)
+EXTRACTION_TARGET_CHARS = 9000
+EXTRACTION_CONTEXT_SEGMENTS = 8
+EXTRACTION_MAX_SEGMENTS = 120
+LOW_SIGNAL_PHRASES = {
+    "okay",
+    "ok",
+    "cool",
+    "sounds good",
+    "got it",
+    "thank you",
+    "thanks",
+    "yep",
+    "yeah",
+    "right",
+    "sure",
+}
+HIGH_SIGNAL_KEYWORDS = (
+    "launch",
+    "publish",
+    "ship",
+    "owner",
+    "due",
+    "deadline",
+    "blocker",
+    "risk",
+    "question",
+    "decision",
+    "action",
+    "slack",
+    "transcript",
+    "canvas",
+    "database",
+    "postgres",
+    "api",
 )
 
 
@@ -33,9 +69,17 @@ def extract_structured_meeting_data(raw_content: str) -> ExtractionResult:
             priority_focus="Capture meeting notes to generate a tracking draft.",
         )
 
+    prepared_content = _prepare_content_for_extraction(normalized)
+    if prepared_content != normalized:
+        logger.info(
+            "Compacted meeting content from %s to %s chars before extraction",
+            len(normalized),
+            len(prepared_content),
+        )
+
     if openai_client.is_configured():
         try:
-            return openai_client.extract_meeting_data(normalized)
+            return openai_client.extract_meeting_data(prepared_content)
         except Exception as exc:  # pragma: no cover - external integration
             logger.warning(
                 (
@@ -45,7 +89,7 @@ def extract_structured_meeting_data(raw_content: str) -> ExtractionResult:
                 exc,
             )
 
-    return _extract_with_rules(normalized)
+    return _extract_with_rules(prepared_content)
 
 
 def _extract_with_rules(raw_content: str) -> ExtractionResult:
@@ -135,6 +179,33 @@ def _build_action_item(line: str) -> ActionItem:
     )
 
 
+def _prepare_content_for_extraction(raw_content: str) -> str:
+    if len(raw_content) <= EXTRACTION_TARGET_CHARS:
+        return raw_content
+
+    segments = _split_for_compression(raw_content)
+    if not segments:
+        return raw_content[:EXTRACTION_TARGET_CHARS]
+
+    selected_indices = _select_context_segment_indices(segments)
+    ranked_segments = sorted(
+        (
+            (_score_segment(segment), index)
+            for index, segment in enumerate(segments)
+            if index not in selected_indices
+        ),
+        reverse=True,
+    )
+
+    for score, index in ranked_segments:
+        if score <= 0 or len(selected_indices) >= EXTRACTION_MAX_SEGMENTS:
+            break
+        selected_indices.add(index)
+
+    compacted = _join_selected_segments(segments, selected_indices)
+    return compacted or raw_content[:EXTRACTION_TARGET_CHARS]
+
+
 def _split_into_segments(raw_content: str) -> list[str]:
     segments: list[str] = []
     for raw_line in raw_content.splitlines():
@@ -161,12 +232,97 @@ def _split_into_segments(raw_content: str) -> list[str]:
     return segments
 
 
+def _split_for_compression(raw_content: str) -> list[str]:
+    segments: list[str] = []
+    for raw_line in raw_content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        for segment in _split_into_segments(line):
+            normalized_segment = _normalize_line(segment)
+            if normalized_segment:
+                segments.append(normalized_segment)
+    return segments
+
+
 def _normalize_line(line: str) -> str:
     return line.strip().lstrip("-").strip()
 
 
 def _strip_prefix(line: str) -> str:
     return line.split(":", 1)[1].strip() if ":" in line else line.strip()
+
+
+def _select_context_segment_indices(segments: list[str]) -> set[int]:
+    selected: set[int] = set()
+    for index, segment in enumerate(segments):
+        if _is_low_signal_segment(segment):
+            continue
+        selected.add(index)
+        if len(selected) >= EXTRACTION_CONTEXT_SEGMENTS:
+            break
+    return selected
+
+
+def _score_segment(segment: str) -> int:
+    lowered = segment.lower()
+    content = _strip_speaker_prefix(lowered)
+
+    score = 0
+    if lowered.startswith(ACTION_PREFIXES + DECISION_PREFIXES + RISK_PREFIXES):
+        score += 100
+    if lowered.startswith(QUESTION_PREFIXES) or segment.endswith("?"):
+        score += 90
+    if OWNER_PATTERN.search(segment):
+        score += 25
+    if DATE_PATTERN.search(segment):
+        score += 20
+    if any(keyword in content for keyword in HIGH_SIGNAL_KEYWORDS):
+        score += 15
+    if len(content.split()) >= 8:
+        score += 10
+    if len(content) >= 40:
+        score += 5
+    if _is_low_signal_segment(segment):
+        score -= 60
+    return score
+
+
+def _is_low_signal_segment(segment: str) -> bool:
+    content = _strip_speaker_prefix(segment.lower()).strip(" .,!?:;")
+    if not content:
+        return True
+    if content in LOW_SIGNAL_PHRASES:
+        return True
+    return len(content.split()) <= 2 and not any(char.isdigit() for char in content)
+
+
+def _strip_speaker_prefix(value: str) -> str:
+    return SPEAKER_PREFIX_PATTERN.sub("", value).strip()
+
+
+def _join_selected_segments(segments: list[str], selected_indices: set[int]) -> str:
+    lines: list[str] = []
+    seen: set[str] = set()
+    total_chars = 0
+
+    for index, segment in enumerate(segments):
+        if index not in selected_indices:
+            continue
+
+        dedupe_key = " ".join(segment.lower().split())
+        if dedupe_key in seen:
+            continue
+
+        projected = total_chars + len(segment) + (1 if lines else 0)
+        if projected > EXTRACTION_TARGET_CHARS:
+            break
+
+        lines.append(segment)
+        seen.add(dedupe_key)
+        total_chars = projected
+
+    return "\n".join(lines)
 
 
 def _unique(values: Iterable[str]) -> list[str]:

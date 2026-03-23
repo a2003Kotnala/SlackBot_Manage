@@ -40,6 +40,30 @@ def test_followthru_chat_endpoint_returns_service_response(monkeypatch):
     assert payload["reply"] == "Handled hello"
 
 
+def test_followthru_chat_endpoint_accepts_long_transcript_payload(monkeypatch):
+    long_message = "publish " + ("A" * 9000)
+
+    monkeypatch.setattr(
+        "app.api.routes.followthru.handle_followthru_chat",
+        lambda payload: FollowThruResponse(
+            bot_name="FollowThru",
+            session_id="session-long",
+            mode=FollowThruMode.publish,
+            reply=f"Handled {len(payload.message)} chars",
+        ),
+    )
+
+    response = client.post(
+        "/api/v1/followthru/chat",
+        json={"message": long_message, "user_id": "api-user"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session_id"] == "session-long"
+    assert payload["reply"] == f"Handled {len(long_message)} chars"
+
+
 def test_followthru_voice_command_endpoint_returns_canvas_response(monkeypatch):
     monkeypatch.setattr(
         "app.api.routes.followthru.handle_followthru_voice_command",
