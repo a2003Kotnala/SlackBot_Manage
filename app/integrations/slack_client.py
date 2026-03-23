@@ -1,3 +1,5 @@
+import httpx
+
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
@@ -35,6 +37,15 @@ class SlackClient:
     def get_file_content(self, file_id: str):
         response = self.client.files_info(file=file_id)
         return response["file"]
+
+    def download_text_file(self, file_url: str) -> str:
+        with httpx.Client(timeout=30) as client:
+            response = client.get(
+                file_url,
+                headers={"Authorization": f"Bearer {settings.slack_bot_token}"},
+            )
+            response.raise_for_status()
+            return response.text
 
     def upload_canvas(self, channel_id: str, content: str, title: str):
         document_content = {"type": "markdown", "markdown": content}
