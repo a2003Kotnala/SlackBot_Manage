@@ -9,7 +9,7 @@ from app.domain.schemas.extraction import (
 from app.domain.services.canvas_composer import create_draft_canvas
 
 
-def test_create_draft_canvas_renders_slack_native_tracking_layout():
+def test_create_draft_canvas_renders_clean_professional_layout():
     extraction = ExtractionResult(
         meeting_title="Launch Readiness Review",
         summary="Reviewed launch readiness.",
@@ -48,25 +48,29 @@ def test_create_draft_canvas_renders_slack_native_tracking_layout():
     canvas = create_draft_canvas(extraction, "manual-demo")
 
     assert "# Launch Readiness Review" in canvas
-    assert "## Meeting Summary" in canvas
-    assert ":traffic_light: *Status:* Execution in progress" in canvas
     assert ":calendar: *Date:*" in canvas
+    assert ":traffic_light: *Status:* Execution in progress" in canvas
     assert ":spiral_calendar_pad: *Next review:* 20 Mar 2026" in canvas
     assert ":dart: *Priority focus:*" in canvas
     assert "1. Prepare beta checklist" in canvas
-    assert ":busts_in_silhouette: *Owners:* *maya*" in canvas
-    assert "## Action Items" in canvas
-    assert "| S.No | Task | Owner | Due | State | Priority |" in canvas
-    assert "Prepare beta checklist" in canvas
-    assert "## Open Risks & Questions" in canvas
-    assert "*Risks*" in canvas
-    assert "*Questions*" in canvas
+    assert ":busts_in_silhouette: *Owners:* maya" in canvas
+    assert "## Meeting Summary" in canvas
     assert "## Key Decisions" in canvas
-    assert "`----------` 0% (0/1 complete)" in canvas
-    assert "| To Do | Needs Review | High Priority | Attention |" in canvas
-    assert "| 1 | 0 | 1 | 2 |" in canvas
-    assert "- :grey_question:" not in canvas
-    assert "- :large_yellow_circle:" not in canvas
+    assert "## Action Items" in canvas
+    assert "| S.No | Task | Owner | Due | Status | Priority |" in canvas
+    assert "Prepare beta checklist" in canvas
+    assert "## Open Risks" in canvas
+    assert "1. QA bandwidth is still limited." in canvas
+    assert "## Open Questions" in canvas
+    assert "1. Who signs off on release messaging?" in canvas
+    assert "*Generated:*" in canvas
+    assert "| Source | Confidence | Actions | Attention |" not in canvas
+    assert "`----------` 0% (0/1 complete)" not in canvas
+    assert "Action Canvas generated from" not in canvas
+    assert "_Text |" not in canvas
+    assert ":grey_question:" not in canvas
+    assert ":red_circle:" not in canvas
+    assert ":large_yellow_circle:" not in canvas
 
 
 def test_create_draft_canvas_deduplicates_summary_content():
@@ -140,5 +144,22 @@ def test_create_draft_canvas_supports_compact_dm_header():
     )
 
     assert "# Launch Readiness Review | 23 Mar 02:49 PM" in canvas
-    assert "_Text | High confidence_" in canvas
     assert "Action Canvas generated from" not in canvas
+    assert "_Text | High confidence_" not in canvas
+
+
+def test_create_draft_canvas_omits_empty_sections():
+    extraction = ExtractionResult(
+        meeting_title="Quiet Sync",
+        summary="A short alignment call with no concrete follow-ups.",
+        confidence_overall=Confidence.needs_review,
+    )
+
+    canvas = create_draft_canvas(extraction, "text")
+
+    assert "## Meeting Summary" in canvas
+    assert "## Key Decisions" not in canvas
+    assert "## Action Items" not in canvas
+    assert "## Open Risks" not in canvas
+    assert "## Open Questions" not in canvas
+    assert "None captured" not in canvas

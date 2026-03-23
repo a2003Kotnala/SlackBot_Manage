@@ -1,3 +1,10 @@
+from dataclasses import dataclass, field
+from datetime import datetime
+from io import BytesIO
+from pathlib import Path
+from xml.etree import ElementTree
+from zipfile import BadZipFile, ZipFile
+
 from app.domain.schemas.followthru import (
     FollowThruChatRequest,
     FollowThruMode,
@@ -25,8 +32,8 @@ HELP_TEXT = (
     "In DMs:\n"
     "- `/followthru clear` clears FollowThru chat state in this DM and removes "
     "recent bot chat messages.\n"
-    "- Paste a transcript or upload a plain-text transcript file "
-    "to create a private canvas workflow.\n"
+    "- Paste a transcript directly for shorter notes, or upload a transcript "
+    "file for larger Zoom, Meet, or Slack huddles.\n"
     "FollowThru keeps command output private to the person who runs it."
 )
 
@@ -44,8 +51,11 @@ CHANNEL_TEXT_REDIRECT_MESSAGE = (
 DM_HELP_TEXT = (
     "*FollowThru DM guide*\n"
     "- Run `/followthru clear` for a fresh FollowThru reset in this DM.\n"
-    "- Paste transcript text or upload a plain-text transcript file and "
-    "FollowThru will create a standalone canvas in Slack when possible.\n"
+    "- Paste transcript text for shorter notes.\n"
+    "- For larger transcripts, upload a file and FollowThru will turn it into "
+    "a standalone canvas when possible.\n"
+    "- Supported uploads: `.txt`, `.md`, `.csv`, `.tsv`, `.srt`, `.vtt`, "
+    "and `.docx`.\n"
     "- Start with `preview` if you only want a private preview.\n"
     "- Start with `draft` to save a local draft without publishing.\n"
     "- Start with `publish` to create a standalone canvas you can edit and share."
@@ -67,6 +77,45 @@ DM_FAILURE_MESSAGE = (
     ":warning: *I hit a snag while processing that transcript.*\n"
     "_Please try again in a moment._"
 )
+DM_TRANSCRIPT_ARTIFACT_THRESHOLD = 8000
+DM_SUPPORTED_TRANSCRIPT_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".markdown",
+    ".csv",
+    ".tsv",
+    ".srt",
+    ".vtt",
+    ".log",
+    ".docx",
+}
+DM_SUPPORTED_TEXT_FILETYPES = {
+    "text",
+    "txt",
+    "csv",
+    "markdown",
+    "md",
+    "tsv",
+    "srt",
+    "vtt",
+    "log",
+}
+DM_SUPPORTED_DOCX_MIMETYPES = {
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+DM_SUPPORTED_UPLOAD_LABEL = "`.txt`, `.md`, `.csv`, `.tsv`, `.srt`, `.vtt`, or `.docx`"
+
+
+@dataclass
+class DMSourcePayload:
+    text: str = ""
+    had_files: bool = False
+    processed_files: list[str] = field(default_factory=list)
+    unreadable_files: list[str] = field(default_factory=list)
+    unsupported_files: list[str] = field(default_factory=list)
+    artifact_content: str | None = None
+    artifact_filename: str | None = None
+    artifact_title: str | None = None
 
 
 def register_handlers(bolt_app) -> None:
@@ -170,29 +219,37 @@ def register_handlers(bolt_app) -> None:
         if event.get("bot_id") or event.get("subtype") == "message_changed":
             return
 
-        dm_text = _build_dm_source_text(event)
-        if not dm_text:
-            say(text=DM_HELP_TEXT)
+        dm_payload = _build_dm_source_payload(event)
+        if not dm_payload.text:
+            say(text=_build_dm_file_support_message(dm_payload))
             return
 
-        lowered = dm_text.lower()
+        lowered = dm_payload.text.lower()
         if lowered in {"help", "hi", "hello"}:
             say(text=DM_HELP_TEXT)
             return
 
         status_message = say(text=DM_PROCESSING_MESSAGE)
         message_ref = _extract_message_ref(status_message, event["channel"])
+        transcript_artifact = _upload_dm_transcript_artifact(
+            event["channel"],
+            dm_payload,
+        )
 
         try:
             response = handle_followthru_chat(
                 FollowThruChatRequest(
-                    message=_normalize_dm_request(dm_text),
+                    message=_normalize_dm_request(dm_payload.text),
                     user_id=event["user"],
                     channel_id=event["channel"],
                     thread_ts=event.get("thread_ts") or event["ts"],
                 )
             )
-            final_text = _build_dm_followthru_message(response)
+            final_text = _build_dm_followthru_message(
+                response,
+                dm_payload=dm_payload,
+                transcript_artifact=transcript_artifact,
+            )
         except Exception:
             logger.exception("Failed to process FollowThru DM transcript")
             final_text = DM_FAILURE_MESSAGE
@@ -298,24 +355,36 @@ def _strip_mention_tokens(text: str) -> str:
     ).strip()
 
 
-def _build_dm_source_text(event) -> str:
+def _build_dm_source_payload(event) -> DMSourcePayload:
+    payload = DMSourcePayload(had_files=bool(event.get("files")))
     text_parts: list[str] = []
     message_text = (event.get("text") or "").strip()
     if message_text:
         text_parts.append(message_text)
 
-    file_text_parts = []
-    unsupported_files = []
     for file_info in event.get("files", []):
-        file_text = _extract_supported_file_text(file_info)
+        file_text, status = _extract_supported_file_text(file_info)
+        file_name = file_info.get("name", "uploaded file")
         if file_text:
-            file_text_parts.append(file_text)
+            text_parts.append(file_text)
+            payload.processed_files.append(file_name)
+            continue
+        if status == "unreadable":
+            payload.unreadable_files.append(file_name)
         else:
-            unsupported_files.append(file_info.get("name", "uploaded file"))
+            payload.unsupported_files.append(file_name)
 
-    if unsupported_files and not text_parts and not file_text_parts:
-        return ""
-    return "\n\n".join(part for part in [*text_parts, *file_text_parts] if part)
+    payload.text = "\n\n".join(part for part in text_parts if part)
+
+    if message_text and len(message_text) >= DM_TRANSCRIPT_ARTIFACT_THRESHOLD:
+        payload.artifact_content = _strip_dm_mode_prefix(message_text)
+        event_dt = _event_datetime(event.get("ts"))
+        payload.artifact_filename = (
+            f"followthru-transcript-{event_dt:%Y%m%d-%H%M%S}.txt"
+        )
+        payload.artifact_title = f"FollowThru Transcript | {event_dt:%d %b %I:%M %p}"
+
+    return payload
 
 
 def _normalize_dm_request(dm_text: str) -> str:
@@ -346,16 +415,24 @@ def _normalize_dm_request(dm_text: str) -> str:
     return f"publish {normalized}"
 
 
-def _build_dm_followthru_message(response) -> str:
+def _build_dm_followthru_message(
+    response,
+    dm_payload: DMSourcePayload | None = None,
+    transcript_artifact: dict | None = None,
+) -> str:
     if response.mode == FollowThruMode.help:
         return DM_HELP_TEXT
 
     if response.mode == FollowThruMode.preview and response.extraction:
-        return _build_preview_message(
+        preview_message = _build_preview_message(
             response.extraction,
             _build_tracking_summary(response.extraction),
             footer=DM_PREVIEW_FOOTER,
         )
+        notices = _build_dm_result_notices(dm_payload, transcript_artifact)
+        if not notices:
+            return preview_message
+        return "\n".join([preview_message, "", *notices])
 
     lines = [_build_dm_completion_banner(response), "", response.reply]
     if response.draft_title and response.draft_title not in response.reply:
@@ -373,6 +450,10 @@ def _build_dm_followthru_message(response) -> str:
             )
 
         lines.extend(["", "*Canvas draft*", f"```{canvas_markdown}```"])
+
+    notices = _build_dm_result_notices(dm_payload, transcript_artifact)
+    if notices:
+        lines.extend(["", *notices])
 
     return "\n".join(lines)
 
@@ -482,23 +563,222 @@ def _build_dm_clear_message(
     )
 
 
-def _extract_supported_file_text(file_info) -> str | None:
-    mimetype = (file_info.get("mimetype") or "").lower()
-    filetype = (file_info.get("filetype") or "").lower()
-    preview = (file_info.get("preview") or "").strip()
-    if preview and filetype in {"text", "csv", "markdown"}:
-        return preview
+def _build_dm_file_support_message(dm_payload: DMSourcePayload) -> str:
+    if dm_payload.unreadable_files:
+        file_names = ", ".join(f"`{name}`" for name in dm_payload.unreadable_files[:3])
+        return (
+            ":paperclip: *I found a transcript file but could not read it yet.*\n"
+            f"_Try re-exporting {file_names} as plain text, or upload one of "
+            f"{DM_SUPPORTED_UPLOAD_LABEL}._"
+        )
 
-    if not (
-        mimetype.startswith("text/") or filetype in {"text", "csv", "markdown", "md"}
-    ):
-        return None
+    if dm_payload.unsupported_files:
+        file_names = ", ".join(
+            f"`{name}`" for name in dm_payload.unsupported_files[:3]
+        )
+        return (
+            ":paperclip: *That upload format is not supported yet.*\n"
+            f"_I can currently process transcript files in "
+            f"{DM_SUPPORTED_UPLOAD_LABEL}. Please re-upload {file_names} "
+            "in one of those formats, or paste a shorter excerpt here._"
+        )
 
-    download_url = file_info.get("url_private_download") or file_info.get("url_private")
-    if not download_url:
+    return DM_HELP_TEXT
+
+
+def _build_dm_result_notices(
+    dm_payload: DMSourcePayload | None,
+    transcript_artifact: dict | None,
+) -> list[str]:
+    notices: list[str] = []
+    if transcript_artifact:
+        artifact_name = transcript_artifact.get("name") or "uploaded transcript"
+        notices.append(
+            "_Saved a transcript file copy as "
+            f"`{artifact_name}` so you can reuse it from Slack Files._"
+        )
+
+    if dm_payload and dm_payload.processed_files:
+        names = ", ".join(f"`{name}`" for name in dm_payload.processed_files[:3])
+        notices.append(f"_Processed uploaded transcript file(s): {names}._")
+
+    skipped_files = []
+    if dm_payload:
+        skipped_files.extend(dm_payload.unreadable_files)
+        skipped_files.extend(dm_payload.unsupported_files)
+    if skipped_files:
+        names = ", ".join(f"`{name}`" for name in skipped_files[:3])
+        notices.append(
+            "_Skipped file(s) I could not use: "
+            f"{names}. Best results come from {DM_SUPPORTED_UPLOAD_LABEL}._"
+        )
+
+    return notices
+
+
+def _upload_dm_transcript_artifact(
+    channel_id: str,
+    dm_payload: DMSourcePayload,
+) -> dict | None:
+    if not dm_payload.artifact_content or not dm_payload.artifact_filename:
         return None
 
     try:
-        return slack_client.download_text_file(download_url).strip()
-    except Exception:
+        return slack_client.upload_text_file(
+            channel_id=channel_id,
+            filename=dm_payload.artifact_filename,
+            content=dm_payload.artifact_content,
+            title=dm_payload.artifact_title,
+        )
+    except Exception as exc:
+        logger.warning("Failed to upload DM transcript artifact: %s", exc)
         return None
+
+
+def _extract_supported_file_text(file_info) -> tuple[str | None, str]:
+    hydrated_file = _hydrate_dm_file_info(file_info)
+    if not _is_supported_transcript_file(hydrated_file):
+        return None, "unsupported"
+
+    preview = (hydrated_file.get("preview") or "").strip()
+    if preview and _is_text_transcript_file(hydrated_file):
+        return preview, "ok"
+
+    download_url = hydrated_file.get("url_private_download") or hydrated_file.get(
+        "url_private"
+    )
+    if not download_url:
+        return None, "unreadable"
+
+    try:
+        if _is_docx_transcript_file(hydrated_file):
+            extracted_text = _extract_docx_text(
+                slack_client.download_file_bytes(download_url)
+            )
+        else:
+            extracted_text = slack_client.download_text_file(download_url)
+    except Exception:
+        return None, "unreadable"
+
+    cleaned_text = extracted_text.strip()
+    if not cleaned_text:
+        return None, "unreadable"
+    return cleaned_text, "ok"
+
+
+def _hydrate_dm_file_info(file_info: dict) -> dict:
+    if file_info.get("preview") or file_info.get("url_private_download"):
+        return file_info
+
+    file_id = file_info.get("id")
+    if not file_id:
+        return file_info
+
+    try:
+        details = slack_client.get_file_content(file_id)
+    except Exception:
+        return file_info
+    return {**details, **file_info}
+
+
+def _is_supported_transcript_file(file_info: dict) -> bool:
+    mimetype = (file_info.get("mimetype") or "").lower()
+    filetype = (file_info.get("filetype") or "").lower()
+    extension = _file_extension(file_info)
+    return (
+        extension in DM_SUPPORTED_TRANSCRIPT_EXTENSIONS
+        or mimetype.startswith("text/")
+        or filetype in DM_SUPPORTED_TEXT_FILETYPES
+        or mimetype in DM_SUPPORTED_DOCX_MIMETYPES
+        or filetype == "docx"
+    )
+
+
+def _is_text_transcript_file(file_info: dict) -> bool:
+    mimetype = (file_info.get("mimetype") or "").lower()
+    filetype = (file_info.get("filetype") or "").lower()
+    extension = _file_extension(file_info)
+    return (
+        mimetype.startswith("text/")
+        or filetype in DM_SUPPORTED_TEXT_FILETYPES
+        or extension in DM_SUPPORTED_TRANSCRIPT_EXTENSIONS - {".docx"}
+    )
+
+
+def _is_docx_transcript_file(file_info: dict) -> bool:
+    mimetype = (file_info.get("mimetype") or "").lower()
+    filetype = (file_info.get("filetype") or "").lower()
+    extension = _file_extension(file_info)
+    return (
+        extension == ".docx"
+        or filetype == "docx"
+        or mimetype in DM_SUPPORTED_DOCX_MIMETYPES
+    )
+
+
+def _file_extension(file_info: dict) -> str:
+    return Path(file_info.get("name") or "").suffix.lower()
+
+
+def _extract_docx_text(file_bytes: bytes) -> str:
+    try:
+        with ZipFile(BytesIO(file_bytes)) as archive:
+            document_xml = archive.read("word/document.xml")
+    except (BadZipFile, KeyError):
+        return ""
+
+    try:
+        root = ElementTree.fromstring(document_xml)
+    except ElementTree.ParseError:
+        return ""
+
+    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    paragraphs: list[str] = []
+    for paragraph in root.findall(".//w:p", namespace):
+        parts: list[str] = []
+        for node in paragraph.iter():
+            tag = node.tag.rsplit("}", 1)[-1]
+            if tag == "t" and node.text:
+                parts.append(node.text)
+            elif tag == "tab":
+                parts.append("\t")
+            elif tag in {"br", "cr"}:
+                parts.append("\n")
+        paragraph_text = "".join(parts).strip()
+        if paragraph_text:
+            paragraphs.append(paragraph_text)
+
+    return "\n".join(paragraphs).strip()
+
+
+def _strip_dm_mode_prefix(message_text: str) -> str:
+    normalized = message_text.strip()
+    lowered = normalized.lower()
+    prefixes = (
+        "preview",
+        "show preview",
+        "dry run",
+        "generate preview",
+        "draft",
+        "save draft",
+        "create draft",
+        "publish",
+        "ship it",
+        "update canvas",
+        "send to canvas",
+        "push to canvas",
+    )
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            remainder = normalized[len(prefix) :].strip(" :,-\n")
+            return remainder or normalized
+    return normalized
+
+
+def _event_datetime(event_ts: str | None) -> datetime:
+    if not event_ts:
+        return datetime.now()
+    try:
+        return datetime.fromtimestamp(float(event_ts))
+    except (TypeError, ValueError):
+        return datetime.now()

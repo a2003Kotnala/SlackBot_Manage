@@ -14,6 +14,7 @@ class FakeSlackClient:
         self.deleted_canvases = []
         self.standalone_created = []
         self.access_updates = []
+        self.uploaded_files = []
 
     def conversations_canvases_create(self, **kwargs):
         self.created.append(kwargs)
@@ -34,6 +35,16 @@ class FakeSlackClient:
     def canvases_access_set(self, **kwargs):
         self.access_updates.append(kwargs)
         return {"ok": True}
+
+    def files_upload_v2(self, **kwargs):
+        self.uploaded_files.append(kwargs)
+        return {
+            "file": {
+                "id": "F999",
+                "name": kwargs["filename"],
+                "title": kwargs["title"],
+            }
+        }
 
     def chat_update(self, **kwargs):
         self.updated_messages.append(kwargs)
@@ -218,3 +229,30 @@ def test_delete_canvas_uses_canvases_delete():
 
     assert result == {"id": "F123"}
     assert fake.deleted_canvases == [{"canvas_id": "F123"}]
+
+
+def test_upload_text_file_uses_files_upload_v2():
+    wrapper = SlackClient()
+    fake = FakeSlackClient()
+    wrapper.client = fake
+
+    result = wrapper.upload_text_file(
+        channel_id="D123",
+        filename="followthru-transcript-20260323-184000.txt",
+        content="Decision: Ship the pilot.",
+        title="FollowThru Transcript | 23 Mar 06:40 PM",
+    )
+
+    assert result == {
+        "id": "F999",
+        "name": "followthru-transcript-20260323-184000.txt",
+        "title": "FollowThru Transcript | 23 Mar 06:40 PM",
+    }
+    assert fake.uploaded_files == [
+        {
+            "channel": "D123",
+            "filename": "followthru-transcript-20260323-184000.txt",
+            "content": "Decision: Ship the pilot.",
+            "title": "FollowThru Transcript | 23 Mar 06:40 PM",
+        }
+    ]

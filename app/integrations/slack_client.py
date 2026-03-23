@@ -52,6 +52,38 @@ class SlackClient:
             response.raise_for_status()
             return response.text
 
+    def download_file_bytes(self, file_url: str) -> bytes:
+        with httpx.Client(timeout=30) as client:
+            response = client.get(
+                file_url,
+                headers={"Authorization": f"Bearer {settings.slack_bot_token}"},
+            )
+            response.raise_for_status()
+            return response.content
+
+    def upload_text_file(
+        self,
+        channel_id: str,
+        filename: str,
+        content: str,
+        title: str | None = None,
+    ):
+        response = self.client.files_upload_v2(
+            channel=channel_id,
+            filename=filename,
+            content=content,
+            title=title or filename,
+        )
+        file_info = response.get("file")
+        if not file_info:
+            files = response.get("files") or []
+            file_info = files[0] if files else {}
+        return {
+            "id": file_info.get("id"),
+            "name": file_info.get("name", filename),
+            "title": file_info.get("title", title or filename),
+        }
+
     def update_message(self, channel_id: str, message_ts: str, text: str):
         response = self.client.chat_update(channel=channel_id, ts=message_ts, text=text)
         return {"channel": response["channel"], "ts": response["ts"], "text": text}
