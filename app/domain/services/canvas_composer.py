@@ -96,16 +96,12 @@ def build_meta_section(
                 compact_header,
             ),
             "",
-            (
-                f":calendar: {bold('Date:')} {datetime.now().strftime('%d %b %Y')}   "
-                f":traffic_light: {bold('Status:')} {status_text}   "
-                f":spiral_calendar_pad: {bold('Next review:')} {next_review}"
-            ),
+            f":calendar: {bold('Date:')} {datetime.now().strftime('%d %b %Y')}",
+            f":traffic_light: {bold('Status:')} {status_text}",
+            f":spiral_calendar_pad: {bold('Next review:')} {next_review}",
             "",
-            (
-                f":dart: {bold('Priority focus:')} "
-                f"{_compact_priority_focus(extraction.priority_focus)}"
-            ),
+            f":dart: {bold('Priority focus:')}",
+            *_priority_focus_lines(extraction.priority_focus),
             "",
             f":busts_in_silhouette: {bold('Owners:')} {owners}",
         ]
@@ -145,7 +141,7 @@ def build_action_items_section(items: list[ActionItem]) -> str:
         "",
         progress_bar(done, total),
         "",
-        "| # | Task | Owner | Due | State | Pri |",
+        "| S.No | Task | Owner | Due | State | Priority |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
     if not items:
@@ -183,10 +179,19 @@ def build_attention_section(extraction: ExtractionResult) -> str:
         lines.append("- None captured.")
         return "\n".join(lines)
 
-    for risk in extraction.risks:
-        lines.append(f"{_risk_badge(risk)} {risk.content}")
-    for question in extraction.open_questions:
-        lines.append(f":grey_question: {bold('Open question')} - {question.content}")
+    if extraction.risks:
+        lines.append(f"{bold('Risks')}")
+        for index, risk in enumerate(extraction.risks, start=1):
+            lines.append(f"{index}. {_risk_badge(risk)} {risk.content}")
+
+    if extraction.open_questions:
+        if extraction.risks:
+            lines.append("")
+        lines.append(f"{bold('Questions')}")
+        for index, question in enumerate(extraction.open_questions, start=1):
+            lines.append(
+                f"{index}. :grey_question: {bold('Open question')} - {question.content}"
+            )
     return "\n".join(lines)
 
 
@@ -201,13 +206,13 @@ def build_footer(extraction: ExtractionResult, source_label: str) -> str:
     attention = len(extraction.risks) + len(extraction.open_questions)
     generated_at = datetime.now().strftime("%d %b %Y, %H:%M")
     summary_table = _render_table(
-        ["", "", "", ""],
+        ["To Do", "Needs Review", "High Priority", "Attention"],
         [
             [
-                _metric_card("To Do", todo),
-                _metric_card("Needs review", needs_review),
-                _metric_card("High priority", high_priority),
-                _metric_card("Attention", attention),
+                str(todo),
+                str(needs_review),
+                str(high_priority),
+                str(attention),
             ]
         ],
     )
@@ -242,7 +247,7 @@ def _status_badge(item: ActionItem) -> str:
         "To Do": ":white_circle: To do",
         "In Progress": ":large_blue_circle: Doing",
         "Needs Review": ":eyes: Review",
-        "Blocked": ":no_entry: Blocked",
+        "Blocked": ":no_entry: Block",
     }
     return mapping[_status_plain(item)]
 
@@ -263,9 +268,9 @@ def _status_plain(item: ActionItem) -> str:
 
 def _priority_badge(item: ActionItem) -> str:
     mapping = {
-        "High": ":red_circle: H",
-        "Medium": ":large_yellow_circle: M",
-        "Low": ":large_green_circle: L",
+        "High": ":red_circle: High",
+        "Medium": ":large_yellow_circle: Med",
+        "Low": ":large_green_circle: Low",
     }
     return mapping[_priority_plain(item)]
 
@@ -283,14 +288,10 @@ def _priority_plain(item: ActionItem) -> str:
 
 def _risk_badge(item: InsightItem) -> str:
     if item.confidence.value == "high":
-        return ":red_circle: *High risk* -"
+        return ":red_circle: *High*"
     if item.confidence.value == "medium":
-        return ":large_yellow_circle: *Medium risk* -"
-    return ":large_green_circle: *Low risk* -"
-
-
-def _metric_card(label: str, value: int) -> str:
-    return f"**{value}**<br>{label}"
+        return ":large_yellow_circle: *Medium*"
+    return ":large_green_circle: *Low*"
 
 
 def _confidence_label(value: str) -> str:
@@ -314,6 +315,31 @@ def _build_header_subtitle(
         "Action Canvas generated from "
         f"{source_label} | AI confidence: {confidence}"
     )
+
+
+def _priority_focus_lines(text: str) -> list[str]:
+    compact_text = _compact_priority_focus(text)
+    if not compact_text:
+        return ["1. Confirm next steps and owners."]
+
+    normalized = re.sub(r"\s+", " ", compact_text).strip()
+    numbered_chunks = re.split(r"\s*\d+\.\s*", normalized)
+    if len(numbered_chunks) > 2:
+        items = [chunk.strip() for chunk in numbered_chunks if chunk.strip()]
+        return [f"{index}. {item}" for index, item in enumerate(items, start=1)]
+
+    sentences = [
+        segment.strip(" -")
+        for segment in re.split(r"(?<=[.!?])\s+|\s*;\s*", normalized)
+        if segment.strip(" -")
+    ]
+    if len(sentences) == 1 and ", and " in normalized:
+        sentences = [part.strip() for part in normalized.split(", ") if part.strip()]
+
+    return [
+        f"{index}. {sentence.rstrip('.')}"
+        for index, sentence in enumerate(sentences[:3], start=1)
+    ] or ["1. Confirm next steps and owners."]
 
 
 def _compose_summary_text(extraction: ExtractionResult) -> str:

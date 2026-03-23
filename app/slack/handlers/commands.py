@@ -7,6 +7,7 @@ from app.domain.services.extraction_service import extract_structured_meeting_da
 from app.domain.services.followthru_service import (
     LEGACY_SLACK_COMMAND,
     PRIMARY_SLACK_COMMAND,
+    clear_followthru_dm_session,
     handle_followthru_chat,
 )
 from app.integrations.slack_client import slack_client
@@ -19,8 +20,11 @@ HELP_TEXT = (
     "*FollowThru command guide*\n"
     "In channels:\n"
     "- `/followthru` previews the latest huddle notes for this channel.\n"
-    "- `/followthru publish` publishes the latest huddle notes to the channel canvas.\n"
+    "- `/followthru publish` publishes the latest huddle notes "
+    "to the channel canvas.\n"
     "In DMs:\n"
+    "- `/followthru clear` clears FollowThru chat state in this DM and removes "
+    "recent bot chat messages.\n"
     "- Paste a transcript or upload a plain-text transcript file "
     "to create a private canvas workflow.\n"
     "FollowThru keeps command output private to the person who runs it."
@@ -39,15 +43,19 @@ CHANNEL_TEXT_REDIRECT_MESSAGE = (
 
 DM_HELP_TEXT = (
     "*FollowThru DM guide*\n"
+    "- Run `/followthru clear` for a fresh FollowThru reset in this DM.\n"
     "- Paste transcript text or upload a plain-text transcript file and "
-    "FollowThru will create a canvas in this DM when possible.\n"
+    "FollowThru will create a standalone canvas in Slack when possible.\n"
     "- Start with `preview` if you only want a private preview.\n"
     "- Start with `draft` to save a local draft without publishing.\n"
-    "- Start with `publish` to force a Slack canvas publish in this DM."
+    "- Start with `publish` to create a standalone canvas you can edit and share."
+)
+DM_CLEAR_CHANNEL_MESSAGE = (
+    "`/followthru clear` only works in a DM with FollowThru."
 )
 
 DM_PREVIEW_FOOTER = (
-    "Use `publish` in this DM to create a Slack canvas here, "
+    "Use `publish` in this DM to create a standalone Slack canvas, "
     "or `draft` to save a local draft without publishing."
 )
 DM_CANVAS_MARKDOWN_LIMIT = 3500
@@ -69,9 +77,26 @@ def register_handlers(bolt_app) -> None:
         thread_ts = command.get("thread_ts")
         user_id = command["user_id"]
         mode, text = _parse_command_text((command.get("text") or "").strip())
+        is_dm = channel_id.startswith("D")
 
         if mode == "help":
-            _respond_privately(respond, HELP_TEXT)
+            _respond_privately(respond, DM_HELP_TEXT if is_dm else HELP_TEXT)
+            return
+
+        if mode == "clear":
+            if not is_dm:
+                _respond_privately(respond, DM_CLEAR_CHANNEL_MESSAGE)
+                return
+
+            clear_result = clear_followthru_dm_session(channel_id)
+            removed_bot_messages = _clear_dm_bot_messages(channel_id)
+            _respond_privately(
+                respond,
+                _build_dm_clear_message(
+                    clear_result,
+                    removed_bot_messages,
+                ),
+            )
             return
 
         if text and mode not in {"publish", "preview"}:
@@ -184,7 +209,7 @@ def _parse_command_text(text: str) -> tuple[str, str]:
 
     command, _, remainder = text.partition(" ")
     mode = command.lower()
-    if mode in {"publish", "preview", "help"}:
+    if mode in {"publish", "preview", "help", "clear"}:
         return mode, remainder.strip()
     return "preview", text
 
@@ -407,6 +432,54 @@ def _update_dm_status_message(message_ref: dict[str, str] | None, text: str) -> 
             "Failed to update DM status message; sending a new message instead"
         )
         return False
+
+
+def _clear_dm_bot_messages(channel_id: str, history_limit: int = 100) -> int:
+    try:
+        messages = slack_client.get_channel_history(channel_id, limit=history_limit)
+    except Exception:
+        logger.warning("Failed to load DM history for clear command")
+        return 0
+
+    removed = 0
+    for message in messages:
+        if not _is_followthru_bot_message(message):
+            continue
+        try:
+            slack_client.delete_message(channel_id, message["ts"])
+            removed += 1
+        except Exception:
+            logger.warning("Failed to delete bot DM message during clear")
+    return removed
+
+
+def _is_followthru_bot_message(message: dict) -> bool:
+    subtype = message.get("subtype")
+    return bool(message.get("bot_id") or subtype == "bot_message")
+
+
+def _build_dm_clear_message(
+    clear_result,
+    removed_bot_messages: int,
+) -> str:
+    cleared_total = sum(
+        [
+            clear_result.cleared_sessions,
+            clear_result.cleared_messages,
+            removed_bot_messages,
+        ]
+    )
+    if not cleared_total:
+        return (
+            "Fresh start ready. There was no FollowThru chat state to clear, "
+            "and your standalone canvases were left untouched."
+        )
+
+    return (
+        "Fresh start ready. FollowThru chat state was cleared and recent bot "
+        "chat messages were removed where Slack allowed it. Your standalone "
+        "canvases were left untouched."
+    )
 
 
 def _extract_supported_file_text(file_info) -> str | None:

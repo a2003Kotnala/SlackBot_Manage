@@ -8,6 +8,7 @@ from app.domain.schemas.extraction import (
     InsightItem,
 )
 from app.domain.schemas.followthru import FollowThruMode
+from app.domain.services.followthru_service import FollowThruClearResult
 from app.slack.handlers.commands import register_handlers
 
 
@@ -228,6 +229,8 @@ def test_followthru_help_command_returns_usage():
                 "- `/followthru publish` publishes the latest huddle notes "
                 "to the channel canvas.\n"
                 "In DMs:\n"
+                "- `/followthru clear` clears FollowThru chat state in this DM "
+                "and removes recent bot chat messages.\n"
                 "- Paste a transcript or upload a plain-text transcript file "
                 "to create a private canvas workflow.\n"
                 "FollowThru keeps command output private to the person who runs it."
@@ -243,6 +246,74 @@ def test_zmanage_alias_still_points_to_followthru_handler():
 
     assert "/followthru" in app.command_handlers
     assert "/zmanage" in app.command_handlers
+
+
+def test_followthru_clear_in_dm_resets_memory_and_deletes_bot_messages(monkeypatch):
+    app = FakeBoltApp()
+    register_handlers(app)
+
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.clear_followthru_dm_session",
+        lambda _channel_id: FollowThruClearResult(
+            cleared_sessions=2,
+            cleared_messages=5,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.get_channel_history",
+        lambda _channel_id, limit=100: [
+            {"ts": "1710000000.000101", "bot_id": "B111"},
+            {"ts": "1710000000.000102", "subtype": "bot_message"},
+            {"ts": "1710000000.000103", "user": "U123"},
+        ],
+    )
+
+    deleted: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.delete_message",
+        lambda channel_id, message_ts: deleted.append((channel_id, message_ts)),
+    )
+
+    responses: list[dict] = []
+    app.command_handlers["/followthru"](
+        ack=lambda: None,
+        command={"channel_id": "D123", "user_id": "U123", "text": "clear"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert deleted == [
+        ("D123", "1710000000.000101"),
+        ("D123", "1710000000.000102"),
+    ]
+    assert responses == [
+        {
+            "text": (
+                "Fresh start ready. FollowThru chat state was cleared and "
+                "recent bot chat messages were removed where Slack allowed it. "
+                "Your standalone canvases were left untouched."
+            ),
+            "response_type": "ephemeral",
+        }
+    ]
+
+
+def test_followthru_clear_in_channel_redirects_to_dm():
+    app = FakeBoltApp()
+    register_handlers(app)
+
+    responses: list[dict] = []
+    app.command_handlers["/followthru"](
+        ack=lambda: None,
+        command={"channel_id": "C123", "user_id": "U123", "text": "clear"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {
+            "text": "`/followthru clear` only works in a DM with FollowThru.",
+            "response_type": "ephemeral",
+        }
+    ]
 
 
 def test_followthru_app_mention_uses_chat_service(monkeypatch):
@@ -370,9 +441,9 @@ def test_followthru_dm_preview_command_returns_preview(monkeypatch):
 
     assert "Processing your transcript" in messages[0]
     assert "*Preview ready.* No draft was created." in updated_messages[0]
-    assert "Use `publish` in this DM to create a Slack canvas here" in updated_messages[
-        0
-    ]
+    assert "Use `publish` in this DM to create a standalone Slack canvas" in (
+        updated_messages[0]
+    )
 
 
 def test_followthru_dm_file_downloads_supported_text_and_shows_local_canvas(

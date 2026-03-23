@@ -56,8 +56,42 @@ class SlackClient:
         response = self.client.chat_update(channel=channel_id, ts=message_ts, text=text)
         return {"channel": response["channel"], "ts": response["ts"], "text": text}
 
-    def upload_canvas(self, channel_id: str, content: str, title: str):
+    def delete_message(self, channel_id: str, message_ts: str):
+        self.client.chat_delete(channel=channel_id, ts=message_ts)
+        return {"channel": channel_id, "ts": message_ts}
+
+    def delete_canvas(self, canvas_id: str):
+        self.client.canvases_delete(canvas_id=canvas_id)
+        return {"id": canvas_id}
+
+    def upload_canvas(
+        self,
+        channel_id: str,
+        content: str,
+        title: str,
+        slack_user_id: str | None = None,
+    ):
         document_content = {"type": "markdown", "markdown": content}
+        if channel_id.startswith("D"):
+            response = self.client.canvases_create(
+                title=title,
+                document_content=document_content,
+            )
+            canvas_id = response["canvas_id"]
+            if slack_user_id:
+                try:
+                    self.client.canvases_access_set(
+                        canvas_id=canvas_id,
+                        access_level="write",
+                        user_ids=[slack_user_id],
+                    )
+                except SlackApiError:
+                    pass
+            return {
+                "id": canvas_id,
+                "title": title,
+                "location": "standalone",
+            }
 
         try:
             response = self.client.conversations_canvases_create(
@@ -65,7 +99,11 @@ class SlackClient:
                 title=title,
                 document_content=document_content,
             )
-            return {"id": response["canvas_id"], "title": title}
+            return {
+                "id": response["canvas_id"],
+                "title": title,
+                "location": "conversation",
+            }
         except SlackApiError as exc:
             if exc.response.get("error") != "channel_canvas_already_exists":
                 raise
@@ -84,7 +122,11 @@ class SlackClient:
                     }
                 ],
             )
-            return {"id": canvas["canvas_id"], "title": title}
+            return {
+                "id": canvas["canvas_id"],
+                "title": title,
+                "location": "conversation",
+            }
 
 
 slack_client = SlackClient()

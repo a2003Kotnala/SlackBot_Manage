@@ -6,6 +6,7 @@ from app.config import settings
 from app.db.models.draft import Draft, DraftStatus
 from app.db.models.extracted_item import Confidence, ExtractedItem, ItemType
 from app.db.models.source import Source
+from app.db.models.user import User
 from app.db.session import SessionLocal
 from app.domain.schemas.extraction import ExtractionResult
 from app.domain.services.canvas_composer import create_draft_canvas
@@ -22,6 +23,7 @@ def create_draft(
     now = datetime.utcnow()
     display_now = datetime.now()
     resolved_owner_user_id = _resolve_owner_user_id(owner_user_id, source)
+    owner_slack_user_id = _resolve_owner_slack_user_id(resolved_owner_user_id)
     compact_header = _uses_compact_canvas_title(source.slack_channel_id)
     canvas_title = build_canvas_title_for_channel(
         extraction.meeting_title,
@@ -48,6 +50,7 @@ def create_draft(
                 channel_id=source.slack_channel_id,
                 content=canvas_content,
                 title=canvas_title,
+                slack_user_id=owner_slack_user_id,
             )
         except Exception as exc:  # pragma: no cover - external integration
             logger.warning(
@@ -156,6 +159,18 @@ def _resolve_owner_user_id(
         except ValueError:
             pass
     return source.created_by
+
+
+def _resolve_owner_slack_user_id(owner_user_id: UUID | None) -> str | None:
+    if owner_user_id is None:
+        return None
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == owner_user_id).first()
+        return user.slack_user_id if user else None
+    finally:
+        db.close()
 
 
 def build_canvas_title_for_channel(

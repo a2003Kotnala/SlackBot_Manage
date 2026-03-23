@@ -50,14 +50,21 @@ def test_create_draft_canvas_renders_slack_native_tracking_layout():
     assert "# Launch Readiness Review" in canvas
     assert "## Meeting Summary" in canvas
     assert ":traffic_light: *Status:* Execution in progress" in canvas
+    assert ":calendar: *Date:*" in canvas
+    assert ":spiral_calendar_pad: *Next review:* 20 Mar 2026" in canvas
+    assert ":dart: *Priority focus:*" in canvas
+    assert "1. Prepare beta checklist" in canvas
     assert ":busts_in_silhouette: *Owners:* *maya*" in canvas
     assert "## Action Items" in canvas
-    assert "| # | Task | Owner | Due | State | Pri |" in canvas
+    assert "| S.No | Task | Owner | Due | State | Priority |" in canvas
     assert "Prepare beta checklist" in canvas
     assert "## Open Risks & Questions" in canvas
+    assert "*Risks*" in canvas
+    assert "*Questions*" in canvas
     assert "## Key Decisions" in canvas
     assert "`----------` 0% (0/1 complete)" in canvas
-    assert "**1**<br>To Do" in canvas
+    assert "| To Do | Needs Review | High Priority | Attention |" in canvas
+    assert "| 1 | 0 | 1 | 2 |" in canvas
     assert "- :grey_question:" not in canvas
     assert "- :large_yellow_circle:" not in canvas
 
@@ -111,6 +118,7 @@ def test_create_draft_canvas_truncates_long_status_and_summary():
     assert "publishing behavior." not in canvas
     assert "permissions..." in canvas
     assert "Sentence 12 covers launch readiness" not in canvas
+    assert "1. Prove the live Slack flow works" in canvas
     assert (
         "- Sentence 1 covers launch readiness, blockers, owners, and next steps."
         in canvas

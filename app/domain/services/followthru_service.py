@@ -75,6 +75,12 @@ class FollowThruExecution:
     extraction: ExtractionResult | None = None
 
 
+@dataclass
+class FollowThruClearResult:
+    cleared_sessions: int = 0
+    cleared_messages: int = 0
+
+
 def handle_followthru_chat(payload: FollowThruChatRequest) -> FollowThruResponse:
     return _handle_followthru_input(
         raw_input=payload.message,
@@ -85,6 +91,43 @@ def handle_followthru_chat(payload: FollowThruChatRequest) -> FollowThruResponse
         source_type=SourceType.text,
         persist_preview_source=False,
     )
+
+
+def clear_followthru_dm_session(channel_id: str | None) -> FollowThruClearResult:
+    if not channel_id:
+        return FollowThruClearResult()
+
+    db = SessionLocal()
+    try:
+        session_ids = [
+            session_id
+            for (session_id,) in (
+                db.query(ChatSession.id)
+                .filter(ChatSession.slack_channel_id == channel_id)
+                .all()
+            )
+        ]
+        if not session_ids:
+            return FollowThruClearResult()
+
+        deleted_messages = (
+            db.query(ChatMessage)
+            .filter(ChatMessage.session_id.in_(session_ids))
+            .delete(synchronize_session=False)
+        )
+        deleted_sessions = (
+            db.query(ChatSession)
+            .filter(ChatSession.id.in_(session_ids))
+            .delete(synchronize_session=False)
+        )
+
+        db.commit()
+        return FollowThruClearResult(
+            cleared_sessions=deleted_sessions,
+            cleared_messages=deleted_messages,
+        )
+    finally:
+        db.close()
 
 
 def handle_followthru_voice_command(
@@ -393,10 +436,18 @@ def _execute_canvas_request(
     )
 
     if draft.slack_canvas_id:
-        reply = (
-            f"Published {draft.title}. "
-            f"{tracking_summary} Slack canvas ID: {draft.slack_canvas_id}."
-        )
+        if channel_id and channel_id.startswith("D"):
+            reply = (
+                f"Published standalone canvas {draft.title}. "
+                f"{tracking_summary} "
+                "It should appear in Slack Files/Canvases so you can edit it "
+                f"and share it to channels. Slack canvas ID: {draft.slack_canvas_id}."
+            )
+        else:
+            reply = (
+                f"Published {draft.title}. "
+                f"{tracking_summary} Slack canvas ID: {draft.slack_canvas_id}."
+            )
     elif parsed.mode == FollowThruMode.draft:
         reply = f"Saved local draft {draft.title}. {tracking_summary}"
     else:
