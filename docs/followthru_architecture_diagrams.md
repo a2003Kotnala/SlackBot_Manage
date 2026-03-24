@@ -1,6 +1,6 @@
 # FollowThru Architecture Diagrams
 
-Generated on 24 Mar 2026 22:40.
+Generated on 24 Mar 2026 22:57.
 
 This document contains the in-depth Mermaid source for the current FollowThru architecture and runtime flows.
 
