@@ -23,10 +23,8 @@ def test_workflow_preview_returns_canvas_and_extraction():
         payload["extraction"]["decisions"][0]["content"] == "Ship the pilot this week."
     )
     assert payload["extraction"]["action_items"][0]["owner"] == "maya"
-    assert "## Meeting Summary" in payload["draft_canvas_markdown"]
+    assert "## Summary" in payload["draft_canvas_markdown"]
     assert "## Action Items" in payload["draft_canvas_markdown"]
-    assert (
-        "| S.No | Task | Owner | Due | Status | Priority |"
-        in payload["draft_canvas_markdown"]
-    )
-    assert "## Open Risks & Questions" in payload["draft_canvas_markdown"]
+    assert "| # | Task | Owner | Due |" in payload["draft_canvas_markdown"]
+    assert "## Risks" not in payload["draft_canvas_markdown"]
+    assert "## Open Questions" not in payload["draft_canvas_markdown"]

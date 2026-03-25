@@ -50,7 +50,8 @@ def is_supported_transcript_file(file_info: dict) -> bool:
         extension in TRANSCRIPT_FILE_EXTENSIONS
         or mimetype.startswith("text/")
         or mimetype == DOCX_MIMETYPE
-        or filetype in {
+        or filetype
+        in {
             "text",
             "txt",
             "csv",
@@ -68,7 +69,9 @@ def is_supported_transcript_file(file_info: dict) -> bool:
 def is_supported_media_file(file_info: dict) -> bool:
     mimetype = (file_info.get("mimetype") or "").lower()
     extension = file_extension(file_info)
-    return extension in MEDIA_FILE_EXTENSIONS or mimetype.startswith(("audio/", "video/"))
+    return extension in MEDIA_FILE_EXTENSIONS or mimetype.startswith(
+        ("audio/", "video/")
+    )
 
 
 def file_extension(file_info: dict) -> str:

@@ -6,12 +6,11 @@ from app.db.base import engine
 
 router = APIRouter(tags=["health"])
 
+
 @router.get("/")
 def home():
-    return {
-        "status": "ok",
-        "message": "Welcome to the FollowThru API"
-        }
+    return {"status": "ok", "message": "Welcome to the FollowThru API"}
+
 
 @router.get("/health")
 def health_check():

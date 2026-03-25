@@ -10,7 +10,10 @@ from app.domain.schemas.ingestion import (
     ProviderType,
     SlackFileReference,
 )
-from app.domain.services.followthru_request import detect_requested_mode, strip_mode_prefix
+from app.domain.services.followthru_request import (
+    detect_requested_mode,
+    strip_mode_prefix,
+)
 from app.domain.services.transcript_parser import (
     is_supported_media_file,
     is_supported_transcript_file,
@@ -48,8 +51,14 @@ def classify_slack_input(
                 rejection_reason="That recording provider is not supported yet.",
             )
 
-    transcript_files = [file_ref for file_ref in files if is_supported_transcript_file(file_ref.model_dump())]
-    media_files = [file_ref for file_ref in files if is_supported_media_file(file_ref.model_dump())]
+    transcript_files = [
+        file_ref
+        for file_ref in files
+        if is_supported_transcript_file(file_ref.model_dump())
+    ]
+    media_files = [
+        file_ref for file_ref in files if is_supported_media_file(file_ref.model_dump())
+    ]
 
     if transcript_files:
         return InputClassification(
@@ -98,5 +107,8 @@ def classify_slack_input(
         source_type=IngestionSourceType.unsupported,
         provider_type=ProviderType.none,
         message_text=message_text.strip(),
-        rejection_reason="Send transcript text, upload a transcript file, or paste a Zoom recording link.",
+        rejection_reason=(
+            "Send transcript text, upload a transcript file, "
+            "or paste a Zoom recording link."
+        ),
     )

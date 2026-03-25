@@ -27,7 +27,9 @@ class JobQueue:
         with self._lock:
             if self._started:
                 return
-            worker = Thread(target=self._worker_loop, daemon=True, name="followthru-jobs")
+            worker = Thread(
+                target=self._worker_loop, daemon=True, name="followthru-jobs"
+            )
             worker.start()
             self._started = True
 
@@ -45,7 +47,9 @@ class JobQueue:
         try:
             process_ingestion_job(job_id)
         except Exception:
-            logger.exception("Unhandled exception while processing ingestion job %s", job_id)
+            logger.exception(
+                "Unhandled exception while processing ingestion job %s", job_id
+            )
 
 
 job_queue = JobQueue()

@@ -215,9 +215,7 @@ def test_delete_message_uses_chat_delete():
     )
 
     assert result == {"channel": "D123", "ts": "1710000000.000250"}
-    assert fake.deleted_messages == [
-        {"channel": "D123", "ts": "1710000000.000250"}
-    ]
+    assert fake.deleted_messages == [{"channel": "D123", "ts": "1710000000.000250"}]
 
 
 def test_delete_canvas_uses_canvases_delete():

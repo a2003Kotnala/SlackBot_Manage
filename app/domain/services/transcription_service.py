@@ -24,7 +24,9 @@ def transcribe_audio_file(audio_path: Path) -> TranscriptDocument:
             "model": settings.resolved_transcription_model,
             "response_format": "verbose_json",
         }
-        with httpx.Client(timeout=settings.followthru_download_timeout_seconds) as client:
+        with httpx.Client(
+            timeout=settings.followthru_download_timeout_seconds
+        ) as client:
             response = client.post(
                 f"{settings.resolved_transcription_base_url}/audio/transcriptions",
                 headers={"Authorization": f"Bearer {api_key}"},
