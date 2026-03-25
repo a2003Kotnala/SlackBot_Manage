@@ -15,14 +15,18 @@ def validate_https_url(url: str, allowed_hosts: tuple[str, ...]) -> str:
     if not parsed.netloc:
         raise UnsafeUrlError("Recording link is missing a hostname.")
     if parsed.username or parsed.password:
-        raise UnsafeUrlError("Recording links with embedded credentials are not allowed.")
+        raise UnsafeUrlError(
+            "Recording links with embedded credentials are not allowed."
+        )
 
     hostname = (parsed.hostname or "").lower().rstrip(".")
     if not hostname:
         raise UnsafeUrlError("Recording link is missing a valid hostname.")
     if _is_blocked_host(hostname):
         raise UnsafeUrlError("Recording link host is not allowed.")
-    if not any(hostname == host or hostname.endswith(f".{host}") for host in allowed_hosts):
+    if not any(
+        hostname == host or hostname.endswith(f".{host}") for host in allowed_hosts
+    ):
         raise UnsafeUrlError("Recording provider is not supported.")
 
     normalized = parsed._replace(fragment="")

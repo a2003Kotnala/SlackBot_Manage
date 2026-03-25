@@ -165,7 +165,11 @@ class ZoomMeetingProvider(MeetingProviderAdapter):
             except UnsafeUrlError:
                 continue
 
-        for quoted_url in re.findall(r'"(\/[^"]+\.(?:txt|vtt|srt|mp4|m4a|mp3|wav|webm)[^"]*)"', page_text, re.IGNORECASE):
+        for quoted_url in re.findall(
+            r'"(\/[^"]+\.(?:txt|vtt|srt|mp4|m4a|mp3|wav|webm)[^"]*)"',
+            page_text,
+            re.IGNORECASE,
+        ):
             candidate = urljoin(str(page_url), quoted_url)
             try:
                 return validate_https_url(candidate, ZOOM_ALLOWED_HOSTS)
