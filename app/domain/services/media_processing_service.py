@@ -26,7 +26,9 @@ def normalize_media_to_audio(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     duration_seconds = probe_media_duration_seconds(input_path)
     if duration_seconds is not None and duration_seconds <= 0:
-        raise MediaProcessingError("The uploaded media does not contain playable audio.")
+        raise MediaProcessingError(
+            "The uploaded media does not contain playable audio."
+        )
 
     timeout_seconds = _resolve_media_processing_timeout(duration_seconds)
     command = [
