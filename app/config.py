@@ -82,10 +82,47 @@ class Settings(BaseSettings):
         default=30.0,
         validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS", "OPENAI_TIMEOUT_SECONDS"),
     )
+    transcription_base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "TRANSCRIPTION_BASE_URL",
+            "AUDIO_TRANSCRIPTION_BASE_URL",
+            "LLM_BASE_URL",
+            "OPENAI_BASE_URL",
+            "GEMINI_BASE_URL",
+        ),
+    )
+    transcription_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "TRANSCRIPTION_API_KEY",
+            "AUDIO_TRANSCRIPTION_API_KEY",
+            "LLM_API_KEY",
+            "GEMINI_API_KEY",
+            "OPENAI_API_KEY",
+        ),
+    )
+    transcription_model: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "TRANSCRIPTION_MODEL",
+            "AUDIO_TRANSCRIPTION_MODEL",
+            "LLM_MODEL",
+            "GEMINI_MODEL",
+            "OPENAI_MODEL",
+        ),
+    )
     slack_publish_drafts: bool = True
     primary_slack_command: str = "/followthru"
     legacy_slack_command: str = "/zmanage"
     followthru_chat_history_limit: int = 12
+    followthru_job_execution_mode: str = "threaded"
+    followthru_max_job_retries: int = 2
+    followthru_download_timeout_seconds: float = 45.0
+    followthru_max_download_bytes: int = 250_000_000
+    followthru_artifact_storage_dir: str = "var/artifacts"
+    ffmpeg_binary: str = "ffmpeg"
+    ffprobe_binary: str = "ffprobe"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -122,6 +159,7 @@ class Settings(BaseSettings):
         "slack_signing_secret",
         "slack_app_token",
         "llm_api_key",
+        "transcription_api_key",
         mode="before",
     )
     @classmethod
@@ -170,6 +208,25 @@ class Settings(BaseSettings):
         if self.llm_provider.lower() == "gemini":
             return DEFAULT_GEMINI_MODEL
         return DEFAULT_OPENAI_MODEL
+
+    @computed_field
+    @property
+    def resolved_transcription_base_url(self) -> str:
+        if self.transcription_base_url:
+            return self.transcription_base_url.rstrip("/")
+        return self.resolved_llm_base_url
+
+    @computed_field
+    @property
+    def resolved_transcription_model(self) -> str:
+        if self.transcription_model:
+            return self.transcription_model
+        return self.resolved_llm_model
+
+    @computed_field
+    @property
+    def resolved_transcription_api_key(self) -> str | None:
+        return self.transcription_api_key or self.llm_api_key
 
     @computed_field
     @property

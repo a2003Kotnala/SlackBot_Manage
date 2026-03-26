@@ -48,22 +48,23 @@ def test_create_draft_canvas_renders_clean_professional_layout():
     canvas = create_draft_canvas(extraction, "manual-demo")
 
     assert "# Launch Readiness Review" in canvas
-    assert ":calendar: *Date:*" in canvas
-    assert ":traffic_light: *Status:* Execution in progress" in canvas
-    assert ":spiral_calendar_pad: *Next review:* 20 Mar 2026" in canvas
-    assert ":dart: *Priority focus:*" in canvas
+    assert "## Summary" in canvas
+    assert "## Current Status" in canvas
+    assert "Execution in progress" in canvas
+    assert "## Next Review" in canvas
+    assert "20 Mar 2026" in canvas
+    assert "## Priority Focus" in canvas
     assert "1. Prepare beta checklist" in canvas
-    assert ":busts_in_silhouette: *Owners:* maya" in canvas
-    assert "## Meeting Summary" in canvas
     assert "## Key Decisions" in canvas
     assert "## Action Items" in canvas
-    assert "| S.No | Task | Owner | Due | Status | Priority |" in canvas
+    assert "| # | Task | Owner | Due |" in canvas
     assert "Prepare beta checklist" in canvas
-    assert "## Open Risks" in canvas
+    assert "## Risks" in canvas
     assert "1. QA bandwidth is still limited." in canvas
     assert "## Open Questions" in canvas
     assert "1. Who signs off on release messaging?" in canvas
-    assert "*Generated:*" in canvas
+    assert "*Generated:*" not in canvas
+    assert "*Owners:*" not in canvas
     assert "| Source | Confidence | Actions | Attention |" not in canvas
     assert "`----------` 0% (0/1 complete)" not in canvas
     assert "Action Canvas generated from" not in canvas
@@ -86,7 +87,7 @@ def test_create_draft_canvas_deduplicates_summary_content():
 
     canvas = create_draft_canvas(extraction, "manual-demo")
 
-    assert "## Meeting Summary" in canvas
+    assert "## Summary" in canvas
     assert " Roadmap Sync - Product, Design, Engineering Summary:" not in canvas
     assert (
         "The team reviewed roadmap priorities and agreed to shift execution focus."
@@ -118,7 +119,7 @@ def test_create_draft_canvas_truncates_long_status_and_summary():
 
     canvas = create_draft_canvas(extraction, "manual-demo")
 
-    assert ":traffic_light: *Status:*" in canvas
+    assert "## Current Status" in canvas
     assert "publishing behavior." not in canvas
     assert "permissions..." in canvas
     assert "Sentence 12 covers launch readiness" not in canvas
@@ -157,9 +158,9 @@ def test_create_draft_canvas_omits_empty_sections():
 
     canvas = create_draft_canvas(extraction, "text")
 
-    assert "## Meeting Summary" in canvas
+    assert "## Summary" in canvas
     assert "## Key Decisions" not in canvas
     assert "## Action Items" not in canvas
-    assert "## Open Risks" not in canvas
+    assert "## Risks" not in canvas
     assert "## Open Questions" not in canvas
     assert "None captured" not in canvas
