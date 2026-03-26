@@ -2,6 +2,7 @@ from pydantic import (
     AliasChoices,
     Field,
     computed_field,
+    field_serializer,
     field_validator,
     model_validator,
 )
@@ -138,6 +139,7 @@ class Settings(BaseSettings):
     followthru_max_job_retries: int = 2
     followthru_download_timeout_seconds: float = 45.0
     followthru_max_download_bytes: int = 250_000_000
+    followthru_media_processing_timeout_seconds: float = 180.0
     followthru_artifact_storage_dir: str = "var/artifacts"
     ffmpeg_binary: str = "ffmpeg"
     ffprobe_binary: str = "ffprobe"
@@ -277,6 +279,16 @@ class Settings(BaseSettings):
     @property
     def openai_timeout_seconds(self) -> float:
         return self.llm_timeout_seconds
+
+    @field_serializer(
+        "slack_bot_token",
+        "slack_signing_secret",
+        "slack_app_token",
+        "llm_api_key",
+        "transcription_api_key",
+    )
+    def serialize_sensitive_values(self, value: str | None):
+        return value
 
 
 settings = Settings()

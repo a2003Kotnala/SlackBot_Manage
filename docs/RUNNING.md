@@ -74,11 +74,16 @@ TRANSCRIPTION_COMPUTE_TYPE=float32
 TRANSCRIPTION_BEAM_SIZE=5
 TRANSCRIPTION_VAD_FILTER=true
 TRANSCRIPTION_CONDITION_ON_PREVIOUS_TEXT=false
+FOLLOWTHRU_MEDIA_PROCESSING_TIMEOUT_SECONDS=180
 ```
 
 Leave `TRANSCRIPTION_LANGUAGE_HINT` blank for code-switched Hindi-English audio
 so Whisper can auto-detect. Keep `task=transcribe` behavior; do not use
 translation for this workflow.
+
+If a media file is corrupt or `ffmpeg` gets stuck during normalization, the job
+now fails once the media-processing timeout is exceeded instead of waiting
+indefinitely on the "Normalizing media..." step.
 
 ## API Smoke Tests
 

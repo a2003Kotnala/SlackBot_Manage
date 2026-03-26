@@ -39,6 +39,7 @@ from app.domain.services.input_classifier import classify_slack_input
 from app.domain.services.job_state_machine import validate_job_transition
 from app.domain.services.media_processing_service import (
     MediaProcessingError,
+    MediaProcessingStoppedError,
     normalize_media_to_audio,
 )
 from app.domain.services.transcript_cleaner import clean_transcript
@@ -424,6 +425,8 @@ def process_ingestion_job(job_id: str | UUID) -> None:
         _handle_terminal_job_failure(
             job_id, IngestionJobStatus.unsupported_source, str(exc)
         )
+    except MediaProcessingStoppedError as exc:
+        _handle_stopped_job(job_id, str(exc))
     except (httpx.TimeoutException, RetryableJobError) as exc:
         _handle_retryable_failure(job_id, exc)
     except (httpx.HTTPStatusError, MediaProcessingError, TranscriptionError) as exc:
@@ -719,7 +722,11 @@ def _transcribe_media_bytes(
         ) and media_path.suffix.lower() == ".wav":
             audio_path.write_bytes(media_bytes)
         else:
-            normalize_media_to_audio(media_path, audio_path)
+            normalize_media_to_audio(
+                media_path,
+                audio_path,
+                stop_requested=lambda: _is_stop_requested(db, job),
+            )
 
         _raise_if_stop_requested(db, job)
         _upsert_normalized_artifact(

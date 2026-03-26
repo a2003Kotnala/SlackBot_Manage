@@ -141,6 +141,7 @@ Relevant environment variables include:
 - `FOLLOWTHRU_MAX_JOB_RETRIES`
 - `FOLLOWTHRU_DOWNLOAD_TIMEOUT_SECONDS`
 - `FOLLOWTHRU_MAX_DOWNLOAD_BYTES`
+- `FOLLOWTHRU_MEDIA_PROCESSING_TIMEOUT_SECONDS`
 - `FFMPEG_BINARY`
 
 For mixed Hindi-English Zoom meetings, the most reliable path in this repo is:
@@ -153,6 +154,10 @@ For mixed Hindi-English Zoom meetings, the most reliable path in this repo is:
 
 In a DM with FollowThru, you can also run `/followthru stop` to cancel the
 latest queued or running meeting-ingestion job for that DM.
+
+Media normalization is now bounded by
+`FOLLOWTHRU_MEDIA_PROCESSING_TIMEOUT_SECONDS`, and a stuck `ffmpeg` run is
+failed instead of hanging forever on "Normalizing media...".
 
 ## Example Requests
 
