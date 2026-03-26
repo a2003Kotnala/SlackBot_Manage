@@ -229,6 +229,8 @@ def test_followthru_help_command_returns_usage():
                 "In DMs:\n"
                 "- `/followthru clear` clears FollowThru chat state in this DM "
                 "and removes recent bot chat messages.\n"
+                "- `/followthru stop` cancels the latest in-flight meeting job "
+                "for this DM.\n"
                 "- Paste a transcript directly for shorter notes, or upload a "
                 "transcript file for larger Zoom, Meet, or Slack huddles.\n"
                 "- Paste a supported Zoom recording link to fetch a transcript "
@@ -311,6 +313,76 @@ def test_followthru_clear_in_channel_redirects_to_dm():
     assert responses == [
         {
             "text": "`/followthru clear` only works in a DM with FollowThru.",
+            "response_type": "ephemeral",
+        }
+    ]
+
+
+def test_followthru_stop_in_dm_requests_active_job_stop(monkeypatch):
+    app = FakeBoltApp()
+    register_handlers(app)
+
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.request_job_stop",
+        lambda _channel_id: SimpleNamespace(stopped=True, active=True),
+    )
+
+    responses: list[dict] = []
+    app.command_handlers["/followthru"](
+        ack=lambda: None,
+        command={"channel_id": "D123", "user_id": "U123", "text": "stop"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {
+            "text": (
+                "Stop requested. FollowThru will halt the current meeting job "
+                "shortly."
+            ),
+            "response_type": "ephemeral",
+        }
+    ]
+
+
+def test_followthru_stop_in_dm_reports_when_no_job_exists(monkeypatch):
+    app = FakeBoltApp()
+    register_handlers(app)
+
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.request_job_stop",
+        lambda _channel_id: SimpleNamespace(stopped=False, active=False),
+    )
+
+    responses: list[dict] = []
+    app.command_handlers["/followthru"](
+        ack=lambda: None,
+        command={"channel_id": "D123", "user_id": "U123", "text": "stop"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {
+            "text": "There is no active FollowThru job to stop in this DM.",
+            "response_type": "ephemeral",
+        }
+    ]
+
+
+def test_followthru_stop_in_channel_redirects_to_dm():
+    app = FakeBoltApp()
+    register_handlers(app)
+
+    responses: list[dict] = []
+    app.command_handlers["/followthru"](
+        ack=lambda: None,
+        command={"channel_id": "C123", "user_id": "U123", "text": "stop"},
+        respond=lambda **kwargs: responses.append(kwargs),
+    )
+
+    assert responses == [
+        {
+            "text": "`/followthru stop` only works in a DM with FollowThru.",
             "response_type": "ephemeral",
         }
     ]

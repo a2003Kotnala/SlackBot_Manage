@@ -56,11 +56,35 @@ from app.logger import logger
 from app.slack.services.dm_response_builder import (
     build_completion_message,
     build_failure_message,
+    build_stopped_message,
 )
 
 SUPPORTED_FILE_ARTIFACT_TYPE = "slack_file"
 MESSAGE_ARTIFACT_TYPE = ArtifactKind.slack_message.value
 RECORDING_LINK_ARTIFACT_TYPE = ArtifactKind.recording_link.value
+STOP_REQUESTED_REASON = "Stopped by user."
+TERMINAL_JOB_STATUSES = {
+    IngestionJobStatus.completed,
+    IngestionJobStatus.failed,
+    IngestionJobStatus.unsupported_source,
+}
+STOPPABLE_ACTIVE_JOB_STATUSES = {
+    IngestionJobStatus.fetching_source,
+    IngestionJobStatus.fetched,
+    IngestionJobStatus.normalizing_media,
+    IngestionJobStatus.transcribing,
+    IngestionJobStatus.cleaning_transcript,
+    IngestionJobStatus.extracting_intelligence,
+    IngestionJobStatus.rendering_canvas,
+}
+STOPPABLE_PENDING_JOB_STATUSES = {
+    IngestionJobStatus.received,
+    IngestionJobStatus.classified,
+    IngestionJobStatus.validated,
+    IngestionJobStatus.queued,
+    IngestionJobStatus.retrying,
+    IngestionJobStatus.needs_permission,
+}
 
 
 class UnsupportedSourceError(RuntimeError):
@@ -68,6 +92,10 @@ class UnsupportedSourceError(RuntimeError):
 
 
 class RetryableJobError(RuntimeError):
+    pass
+
+
+class JobStoppedError(RuntimeError):
     pass
 
 
@@ -83,6 +111,14 @@ class ResolvedTranscript:
     document: TranscriptDocument
     processed_files: list[str]
     skipped_files: list[str]
+
+
+@dataclass
+class JobStopResult:
+    stopped: bool
+    job_id: str | None = None
+    active: bool = False
+    status: IngestionJobStatus | None = None
 
 
 def create_or_get_slack_ingestion_job(
@@ -235,15 +271,77 @@ def record_status_message(job_id: str | UUID, message_ts: str) -> None:
         db.close()
 
 
+def request_job_stop(channel_id: str) -> JobStopResult:
+    db = SessionLocal()
+    try:
+        job = (
+            db.query(IngestionJob)
+            .filter(IngestionJob.slack_channel_id == channel_id)
+            .order_by(IngestionJob.created_at.desc())
+            .first()
+        )
+        if not job or job.status in TERMINAL_JOB_STATUSES:
+            return JobStopResult(stopped=False)
+
+        _request_stop(job.id)
+
+        if job.status in STOPPABLE_PENDING_JOB_STATUSES:
+            _transition_job(
+                db,
+                job,
+                IngestionJobStatus.failed,
+                step="stopped",
+                progress="stopped",
+                notify=False,
+            )
+            job.failure_reason = STOP_REQUESTED_REASON
+            job.completed_at = _utcnow()
+            db.add(job)
+            _write_audit(
+                db,
+                job.id,
+                "job_stopped",
+                STOP_REQUESTED_REASON,
+                {"status": job.status.value},
+                _utcnow(),
+            )
+            db.commit()
+            _notify_job_stopped(job)
+            _clear_stop_request(job.id)
+            return JobStopResult(
+                stopped=True,
+                job_id=str(job.id),
+                active=False,
+                status=job.status,
+            )
+
+        job.failure_reason = STOP_REQUESTED_REASON
+        job.updated_at = _utcnow()
+        db.add(job)
+        _write_audit(
+            db,
+            job.id,
+            "job_stop_requested",
+            STOP_REQUESTED_REASON,
+            {"status": job.status.value},
+            job.updated_at,
+        )
+        db.commit()
+        return JobStopResult(
+            stopped=True,
+            job_id=str(job.id),
+            active=job.status in STOPPABLE_ACTIVE_JOB_STATUSES,
+            status=job.status,
+        )
+    finally:
+        db.close()
+
+
 def prepare_job_for_enqueue(job_id: str | UUID) -> None:
     db = SessionLocal()
     try:
         job = _get_job(db, job_id)
-        if not job or job.status in {
-            IngestionJobStatus.completed,
-            IngestionJobStatus.failed,
-            IngestionJobStatus.unsupported_source,
-        }:
+        if not job or job.status in TERMINAL_JOB_STATUSES:
             return
 
         if job.status == IngestionJobStatus.received:
@@ -285,12 +383,10 @@ def process_ingestion_job(job_id: str | UUID) -> None:
         job = _get_job(db, job_id)
         if not job:
             return
-        if job.status in {
-            IngestionJobStatus.completed,
-            IngestionJobStatus.failed,
-            IngestionJobStatus.unsupported_source,
-        }:
+        if job.status in TERMINAL_JOB_STATUSES:
             return
+
+        _raise_if_stop_requested(db, job)
 
         if job.started_at is None:
             job.started_at = _utcnow()
@@ -298,7 +394,9 @@ def process_ingestion_job(job_id: str | UUID) -> None:
             db.commit()
 
         resolved = _resolve_transcript_for_job(db, job)
+        _raise_if_stop_requested(db, job)
         cleaned_document = _clean_and_store_transcript(db, job, resolved.document)
+        _raise_if_stop_requested(db, job)
         response = _extract_and_render(db, job, cleaned_document)
 
         _transition_job(
@@ -312,6 +410,7 @@ def process_ingestion_job(job_id: str | UUID) -> None:
         job.completed_at = _utcnow()
         db.add(job)
         db.commit()
+        _clear_stop_request(job.id)
 
         _notify_job_completion(
             job,
@@ -319,6 +418,8 @@ def process_ingestion_job(job_id: str | UUID) -> None:
             processed_files=resolved.processed_files,
             skipped_files=resolved.skipped_files,
         )
+    except JobStoppedError as exc:
+        _handle_stopped_job(job_id, str(exc))
     except UnsupportedSourceError as exc:
         _handle_terminal_job_failure(
             job_id, IngestionJobStatus.unsupported_source, str(exc)
@@ -335,6 +436,8 @@ def process_ingestion_job(job_id: str | UUID) -> None:
 
 
 def _resolve_transcript_for_job(db, job: IngestionJob) -> ResolvedTranscript:
+    _raise_if_stop_requested(db, job)
+
     if job.source_type == IngestionSourceType.transcript_text:
         _transition_job(
             db,
@@ -369,6 +472,7 @@ def _resolve_transcript_for_job(db, job: IngestionJob) -> ResolvedTranscript:
 
 
 def _resolve_transcript_from_files(db, job: IngestionJob) -> ResolvedTranscript:
+    _raise_if_stop_requested(db, job)
     _transition_job(
         db,
         job,
@@ -383,6 +487,7 @@ def _resolve_transcript_from_files(db, job: IngestionJob) -> ResolvedTranscript:
     processed_files: list[str] = []
 
     for artifact in artifacts:
+        _raise_if_stop_requested(db, job)
         file_url = artifact.source_url
         filename = artifact.filename or "transcript.txt"
         metadata = artifact.metadata_json or {}
@@ -416,6 +521,7 @@ def _resolve_transcript_from_files(db, job: IngestionJob) -> ResolvedTranscript:
             )
         processed_files.append(filename)
 
+    _raise_if_stop_requested(db, job)
     if not documents:
         raise UnsupportedSourceError(
             "I could not read any supported transcript text from those files."
@@ -442,6 +548,7 @@ def _resolve_transcript_from_files(db, job: IngestionJob) -> ResolvedTranscript:
 
 
 def _resolve_transcript_from_media_file(db, job: IngestionJob) -> ResolvedTranscript:
+    _raise_if_stop_requested(db, job)
     _transition_job(
         db,
         job,
@@ -473,6 +580,7 @@ def _resolve_transcript_from_media_file(db, job: IngestionJob) -> ResolvedTransc
             f"{artifact.filename or 'Media file'} is too large to process safely."
         )
 
+    _raise_if_stop_requested(db, job)
     media_bytes = slack_client.download_file_bytes(artifact.source_url)
     transcript = _transcribe_media_bytes(
         db=db,
@@ -495,6 +603,7 @@ def _resolve_transcript_from_media_file(db, job: IngestionJob) -> ResolvedTransc
 def _resolve_transcript_from_recording_link(
     db, job: IngestionJob
 ) -> ResolvedTranscript:
+    _raise_if_stop_requested(db, job)
     if not job.source_url:
         raise UnsupportedSourceError("Recording link is missing.")
 
@@ -553,7 +662,11 @@ def _resolve_transcript_from_recording_link(
             "from that recording link."
         )
 
-    media_bytes = _download_remote_bytes(media_result.media_download_url)
+    _raise_if_stop_requested(db, job)
+    media_bytes = _download_remote_bytes(
+        media_result.media_download_url,
+        stop_requested=lambda: _is_stop_requested(db, job),
+    )
     transcript = _transcribe_media_bytes(
         db=db,
         job=job,
@@ -576,6 +689,7 @@ def _transcribe_media_bytes(
     filename: str,
     mime_type: str | None,
 ) -> TranscriptDocument:
+    _raise_if_stop_requested(db, job)
     _transition_job(
         db,
         job,
@@ -607,6 +721,7 @@ def _transcribe_media_bytes(
         else:
             normalize_media_to_audio(media_path, audio_path)
 
+        _raise_if_stop_requested(db, job)
         _upsert_normalized_artifact(
             db,
             job.id,
@@ -625,7 +740,10 @@ def _transcribe_media_bytes(
             notify=True,
             message="Transcribing the meeting audio.",
         )
-        return transcribe_audio_file(audio_path)
+        return transcribe_audio_file(
+            audio_path,
+            stop_requested=lambda: _is_stop_requested(db, job),
+        )
 
 
 def _clean_and_store_transcript(
@@ -633,6 +751,7 @@ def _clean_and_store_transcript(
     job: IngestionJob,
     document: TranscriptDocument,
 ) -> TranscriptDocument:
+    _raise_if_stop_requested(db, job)
     if job.status != IngestionJobStatus.cleaning_transcript:
         _transition_job(
             db,
@@ -669,6 +788,7 @@ def _clean_and_store_transcript(
 
 
 def _extract_and_render(db, job: IngestionJob, document: TranscriptDocument):
+    _raise_if_stop_requested(db, job)
     _transition_job(
         db,
         job,
@@ -749,11 +869,7 @@ def _handle_terminal_job_failure(
     db = SessionLocal()
     try:
         job = _get_job(db, job_id)
-        if not job or job.status in {
-            IngestionJobStatus.completed,
-            IngestionJobStatus.failed,
-            IngestionJobStatus.unsupported_source,
-        }:
+        if not job or job.status in TERMINAL_JOB_STATUSES:
             return
 
         _transition_job(
@@ -784,6 +900,40 @@ def _handle_terminal_job_failure(
                 build_failure_message(reason),
             )
     finally:
+        _clear_stop_request(job_id)
+        db.close()
+
+
+def _handle_stopped_job(job_id: str | UUID, reason: str) -> None:
+    db = SessionLocal()
+    try:
+        job = _get_job(db, job_id)
+        if not job or job.status in TERMINAL_JOB_STATUSES:
+            return
+
+        _transition_job(
+            db,
+            job,
+            IngestionJobStatus.failed,
+            step="stopped",
+            progress="stopped",
+            notify=False,
+        )
+        job.failure_reason = reason
+        job.completed_at = _utcnow()
+        db.add(job)
+        _write_audit(
+            db,
+            job.id,
+            "job_stopped",
+            reason,
+            {"status": job.status.value},
+            _utcnow(),
+        )
+        db.commit()
+        _notify_job_stopped(job)
+    finally:
+        _clear_stop_request(job_id)
         db.close()
 
 
@@ -897,6 +1047,43 @@ def _transition_job(
             job.slack_status_ts,
             f"*Processing your meeting notes...*\n_{message}_",
         )
+
+
+def _is_stop_requested(db, job: IngestionJob) -> bool:
+    db.refresh(job)
+    if job.failure_reason == STOP_REQUESTED_REASON:
+        return True
+
+    from app.workers.job_queue import job_queue
+
+    return job_queue.is_stop_requested(job.id)
+
+
+def _raise_if_stop_requested(db, job: IngestionJob) -> None:
+    if _is_stop_requested(db, job):
+        raise JobStoppedError(STOP_REQUESTED_REASON)
+
+
+def _request_stop(job_id: str | UUID) -> None:
+    from app.workers.job_queue import job_queue
+
+    job_queue.request_stop(job_id)
+
+
+def _clear_stop_request(job_id: str | UUID) -> None:
+    from app.workers.job_queue import job_queue
+
+    job_queue.clear_stop(job_id)
+
+
+def _notify_job_stopped(job: IngestionJob) -> None:
+    if not job.slack_channel_id or not job.slack_status_ts:
+        return
+    slack_client.update_message(
+        job.slack_channel_id,
+        job.slack_status_ts,
+        build_stopped_message(),
+    )
 
 
 def _get_or_create_workspace(
@@ -1237,7 +1424,11 @@ def _resolve_slack_user_id(db, user_id) -> str | None:
     return user.slack_user_id if user else None
 
 
-def _download_remote_bytes(url: str) -> bytes:
+def _download_remote_bytes(
+    url: str,
+    *,
+    stop_requested=None,
+) -> bytes:
     with httpx.Client(
         follow_redirects=True,
         timeout=settings.followthru_download_timeout_seconds,
@@ -1247,6 +1438,8 @@ def _download_remote_bytes(url: str) -> bytes:
             _validate_download_size(response.headers.get("Content-Length"))
             payload = bytearray()
             for chunk in response.iter_bytes():
+                if stop_requested and stop_requested():
+                    raise JobStoppedError(STOP_REQUESTED_REASON)
                 payload.extend(chunk)
                 if len(payload) > settings.followthru_max_download_bytes:
                     raise UnsupportedSourceError(

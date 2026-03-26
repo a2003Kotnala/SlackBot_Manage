@@ -82,3 +82,28 @@ def test_dm_ingestion_service_skips_duplicate_job(monkeypatch):
 
     assert handled is True
     assert messages == []
+
+
+def test_dm_ingestion_service_stop_requests_job_cancellation(monkeypatch):
+    monkeypatch.setattr(
+        "app.slack.services.dm_ingestion_service.request_job_stop",
+        lambda _channel_id: SimpleNamespace(stopped=True, active=True),
+    )
+
+    messages: list[str] = []
+    handled = handle_dm_ingestion_event(
+        event={
+            "channel_type": "im",
+            "team": "T123",
+            "user": "U123",
+            "channel": "D123",
+            "ts": "1710000000.000200",
+            "text": "stop",
+        },
+        say=lambda text: messages.append(text),
+    )
+
+    assert handled is True
+    assert messages == [
+        "Stop requested. FollowThru will halt the current meeting job shortly."
+    ]

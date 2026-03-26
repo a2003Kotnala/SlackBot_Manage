@@ -12,9 +12,13 @@ Slack action canvases.
 - Async DM ingestion jobs with idempotent job creation and duplicate-safe retries
 - Transcript file ingestion for `.txt`, `.md`, `.csv`, `.tsv`, `.srt`, `.vtt`,
   `.log`, and `.docx`
+- Direct meeting media ingestion for `.aac`, `.m4a`, `.mov`, `.mp3`, `.mp4`,
+  `.mpeg`, `.mpg`, `.wav`, and `.webm`
 - Zoom recording-link ingestion with provider isolation and transcript-first
   fallback before media transcription
 - FFmpeg-based media normalization plus OpenAI-compatible transcription support
+- Optional local `faster-whisper` / Whisper `large-v3` transcription for
+  mixed Hindi-English meeting audio without API rate limits
 - Voice-command API that accepts speech-to-text transcripts and drives canvas generation
 - Deterministic extraction fallback plus optional Gemini/OpenAI-compatible LLM support
 - Slack canvas publishing when workspace credentials and channel context are available
@@ -62,6 +66,7 @@ Supported DM flows in this repo today:
 
 - transcript text to extraction to canvas draft
 - transcript file to parsing to extraction to canvas draft
+- uploaded media file to transcription to canvas draft
 - Zoom link to transcript fetch or media transcription to canvas draft
 
 ## Background Processing
@@ -116,6 +121,7 @@ or set `FFMPEG_BINARY`.
 
 Relevant environment variables include:
 
+- `TRANSCRIPTION_PROVIDER`
 - `LLM_PROVIDER`
 - `LLM_BASE_URL`
 - `LLM_API_KEY`, `GEMINI_API_KEY`, or `OPENAI_API_KEY`
@@ -123,11 +129,30 @@ Relevant environment variables include:
 - `TRANSCRIPTION_BASE_URL`
 - `TRANSCRIPTION_API_KEY`
 - `TRANSCRIPTION_MODEL`
+- `TRANSCRIPTION_LOCAL_MODEL`
+- `TRANSCRIPTION_LANGUAGE_HINT`
+- `TRANSCRIPTION_DEVICE`
+- `TRANSCRIPTION_COMPUTE_TYPE`
+- `TRANSCRIPTION_BEAM_SIZE`
+- `TRANSCRIPTION_VAD_FILTER`
+- `TRANSCRIPTION_CONDITION_ON_PREVIOUS_TEXT`
+- `TRANSCRIPTION_INITIAL_PROMPT`
 - `FOLLOWTHRU_JOB_EXECUTION_MODE`
 - `FOLLOWTHRU_MAX_JOB_RETRIES`
 - `FOLLOWTHRU_DOWNLOAD_TIMEOUT_SECONDS`
 - `FOLLOWTHRU_MAX_DOWNLOAD_BYTES`
 - `FFMPEG_BINARY`
+
+For mixed Hindi-English Zoom meetings, the most reliable path in this repo is:
+
+- set `TRANSCRIPTION_PROVIDER=local-whisper`
+- set `TRANSCRIPTION_LOCAL_MODEL=large-v3`
+- leave `TRANSCRIPTION_LANGUAGE_HINT` blank so the model can handle code-switched audio
+- keep `TRANSCRIPTION_CONDITION_ON_PREVIOUS_TEXT=false` to reduce repetition loops
+- keep `TRANSCRIPTION_VAD_FILTER=true` to trim long silences before decoding
+
+In a DM with FollowThru, you can also run `/followthru stop` to cancel the
+latest queued or running meeting-ingestion job for that DM.
 
 ## Example Requests
 

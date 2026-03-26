@@ -112,6 +112,24 @@ class Settings(BaseSettings):
             "OPENAI_MODEL",
         ),
     )
+    transcription_provider: str = "openai-compatible"
+    transcription_local_model: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("TRANSCRIPTION_LOCAL_MODEL", "WHISPER_MODEL"),
+    )
+    transcription_language_hint: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "TRANSCRIPTION_LANGUAGE_HINT",
+            "WHISPER_LANGUAGE",
+        ),
+    )
+    transcription_device: str = "auto"
+    transcription_compute_type: str | None = "float32"
+    transcription_beam_size: int = 5
+    transcription_vad_filter: bool = True
+    transcription_condition_on_previous_text: bool = False
+    transcription_initial_prompt: str | None = None
     slack_publish_drafts: bool = True
     primary_slack_command: str = "/followthru"
     legacy_slack_command: str = "/zmanage"
@@ -160,6 +178,9 @@ class Settings(BaseSettings):
         "slack_app_token",
         "llm_api_key",
         "transcription_api_key",
+        "transcription_local_model",
+        "transcription_language_hint",
+        "transcription_initial_prompt",
         mode="before",
     )
     @classmethod
@@ -222,6 +243,18 @@ class Settings(BaseSettings):
         if self.transcription_model:
             return self.transcription_model
         return self.resolved_llm_model
+
+    @computed_field
+    @property
+    def resolved_transcription_provider(self) -> str:
+        return (self.transcription_provider or "openai-compatible").strip().lower()
+
+    @computed_field
+    @property
+    def resolved_local_transcription_model(self) -> str:
+        if self.transcription_local_model:
+            return self.transcription_local_model
+        return "large-v3"
 
     @computed_field
     @property

@@ -4,6 +4,7 @@ from app.domain.schemas.followthru import FollowThruMode
 
 DM_HELP_TEXT = (
     "*FollowThru DM guide*\n"
+    "- Run `stop` or `/followthru stop` to cancel the latest meeting job in this DM.\n"
     "- Paste transcript text for shorter meeting notes.\n"
     "- Upload transcript files in `.txt`, `.md`, `.csv`, `.tsv`, "
     "`.srt`, `.vtt`, `.log`, or `.docx`.\n"
@@ -119,3 +120,7 @@ def build_failure_message(reason: str | None = None) -> str:
         "*I hit a snag while processing that source.*\n"
         "_Please try again in a moment._"
     )
+
+
+def build_stopped_message() -> str:
+    return "*Stopped.*\n" "_This job was cancelled by the user._"

@@ -6,6 +6,7 @@ from app.domain.services.ingestion_job_service import (
     create_or_get_slack_ingestion_job,
     prepare_job_for_enqueue,
     record_status_message,
+    request_job_stop,
 )
 from app.slack.services.dm_response_builder import DM_ACCEPTED_MESSAGE, DM_HELP_TEXT
 from app.workers.job_queue import job_queue
@@ -24,6 +25,21 @@ def handle_dm_ingestion_event(event, say) -> bool:
 
     if message_text.lower() in {"help", "hi", "hello"}:
         say(text=DM_HELP_TEXT)
+        return True
+
+    if message_text.lower() == "stop" and not files:
+        stop_result = request_job_stop(event["channel"])
+        if stop_result.stopped:
+            say(
+                text=(
+                    "Stop requested. FollowThru will halt the current meeting job "
+                    "shortly."
+                    if stop_result.active
+                    else "FollowThru stopped the queued meeting job for this DM."
+                )
+            )
+        else:
+            say(text="There is no active FollowThru job to stop in this DM.")
         return True
 
     creation = create_or_get_slack_ingestion_job(

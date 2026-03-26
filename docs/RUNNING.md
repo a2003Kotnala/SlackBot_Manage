@@ -10,6 +10,8 @@ Slack and an LLM provider are optional for local development:
 
 - Without Slack credentials, Slack endpoints return `503`, but the API still starts.
 - Without an LLM key, extraction and chat fall back to deterministic behavior.
+- For local meeting-media transcription, you can use `faster-whisper` and avoid
+  external transcription API rate limits.
 
 ## Environment
 
@@ -54,6 +56,29 @@ Configure these Slack app values:
 - Event subscription for `app_mention`
 
 Reinstall the Slack app after changing commands or event subscriptions.
+
+In a DM with FollowThru, `/followthru stop` cancels the latest queued or
+running meeting-ingestion job for that DM.
+
+## Local Whisper Setup
+
+For mixed Hindi-English meeting recordings, the most reliable setup in this
+repo is local Whisper inference:
+
+```env
+TRANSCRIPTION_PROVIDER=local-whisper
+TRANSCRIPTION_LOCAL_MODEL=large-v3
+TRANSCRIPTION_LANGUAGE_HINT=
+TRANSCRIPTION_DEVICE=cpu
+TRANSCRIPTION_COMPUTE_TYPE=float32
+TRANSCRIPTION_BEAM_SIZE=5
+TRANSCRIPTION_VAD_FILTER=true
+TRANSCRIPTION_CONDITION_ON_PREVIOUS_TEXT=false
+```
+
+Leave `TRANSCRIPTION_LANGUAGE_HINT` blank for code-switched Hindi-English audio
+so Whisper can auto-detect. Keep `task=transcribe` behavior; do not use
+translation for this workflow.
 
 ## API Smoke Tests
 

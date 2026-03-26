@@ -17,6 +17,7 @@ from app.domain.services.followthru_service import (
     clear_followthru_dm_session,
     handle_followthru_chat,
 )
+from app.domain.services.ingestion_job_service import request_job_stop
 from app.integrations.slack_client import slack_client
 from app.logger import logger
 from app.slack.services.dm_ingestion_service import handle_dm_ingestion_event
@@ -33,6 +34,7 @@ HELP_TEXT = (
     "In DMs:\n"
     "- `/followthru clear` clears FollowThru chat state in this DM and removes "
     "recent bot chat messages.\n"
+    "- `/followthru stop` cancels the latest in-flight meeting job for this DM.\n"
     "- Paste a transcript directly for shorter notes, or upload a transcript "
     "file for larger Zoom, Meet, or Slack huddles.\n"
     "- Paste a supported Zoom recording link to fetch a transcript "
@@ -54,6 +56,7 @@ CHANNEL_TEXT_REDIRECT_MESSAGE = (
 DM_HELP_TEXT = (
     "*FollowThru DM guide*\n"
     "- Run `/followthru clear` for a fresh FollowThru reset in this DM.\n"
+    "- Run `/followthru stop` to cancel the latest queued or running meeting job.\n"
     "- Paste transcript text for shorter notes.\n"
     "- For larger transcripts, upload a file and FollowThru will turn it into "
     "a standalone canvas when possible.\n"
@@ -66,6 +69,14 @@ DM_HELP_TEXT = (
     "- Start with `publish` to create a standalone canvas you can edit and share."
 )
 DM_CLEAR_CHANNEL_MESSAGE = "`/followthru clear` only works in a DM with FollowThru."
+DM_STOP_CHANNEL_MESSAGE = "`/followthru stop` only works in a DM with FollowThru."
+DM_STOP_EMPTY_MESSAGE = "There is no active FollowThru job to stop in this DM."
+DM_STOP_PENDING_MESSAGE = (
+    "FollowThru stopped the queued meeting job for this DM."
+)
+DM_STOP_ACTIVE_MESSAGE = (
+    "Stop requested. FollowThru will halt the current meeting job shortly."
+)
 
 DM_PREVIEW_FOOTER = (
     "Use `publish` in this DM to create a standalone Slack canvas, "
@@ -151,6 +162,24 @@ def register_handlers(bolt_app) -> None:
             )
             return
 
+        if mode == "stop":
+            if not is_dm:
+                _respond_privately(respond, DM_STOP_CHANNEL_MESSAGE)
+                return
+
+            stop_result = request_job_stop(channel_id)
+            if not stop_result.stopped:
+                _respond_privately(respond, DM_STOP_EMPTY_MESSAGE)
+                return
+
+            _respond_privately(
+                respond,
+                DM_STOP_ACTIVE_MESSAGE
+                if stop_result.active
+                else DM_STOP_PENDING_MESSAGE,
+            )
+            return
+
         if text and mode not in {"publish", "preview"}:
             _respond_privately(respond, CHANNEL_TEXT_REDIRECT_MESSAGE)
             return
@@ -230,7 +259,7 @@ def _parse_command_text(text: str) -> tuple[str, str]:
 
     command, _, remainder = text.partition(" ")
     mode = command.lower()
-    if mode in {"publish", "preview", "help", "clear"}:
+    if mode in {"publish", "preview", "help", "clear", "stop"}:
         return mode, remainder.strip()
     return "preview", text
 
