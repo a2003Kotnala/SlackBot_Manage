@@ -4,8 +4,8 @@ from .canvas_version import CanvasVersion
 from .chat_message import ChatMessage
 from .chat_session import ChatSession
 from .draft import Draft
-from .extracted_item import ExtractedItem
 from .extraction_result_record import ExtractionResultRecord
+from .extracted_item import ExtractedItem
 from .ingestion_job import IngestionJob
 from .normalized_artifact import NormalizedArtifact
 from .provider_access_record import ProviderAccessRecord

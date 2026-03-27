@@ -45,9 +45,7 @@ class JobQueue:
         with self._lock:
             if self._started:
                 return
-            worker = Thread(
-                target=self._worker_loop, daemon=True, name="followthru-jobs"
-            )
+            worker = Thread(target=self._worker_loop, daemon=True, name="followthru-jobs")
             worker.start()
             self._started = True
 
@@ -67,12 +65,16 @@ class JobQueue:
         try:
             process_ingestion_job(job_id)
         except Exception:
+<<<<<<< HEAD
             logger.exception(
                 "Unhandled exception while processing ingestion job %s", job_id
             )
         finally:
             with self._lock:
                 self._active_jobs.discard(job_id)
+=======
+            logger.exception("Unhandled exception while processing ingestion job %s", job_id)
+>>>>>>> parent of 82543da (Merge pull request #4 from a2003Kotnala/Ankit/home)
 
 
 job_queue = JobQueue()

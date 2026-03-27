@@ -44,9 +44,7 @@ class SlackClient:
         return response["file"]
 
     def download_text_file(self, file_url: str) -> str:
-        with httpx.Client(
-            timeout=settings.followthru_download_timeout_seconds
-        ) as client:
+        with httpx.Client(timeout=30) as client:
             response = client.get(
                 file_url,
                 headers={"Authorization": f"Bearer {settings.slack_bot_token}"},
@@ -55,9 +53,7 @@ class SlackClient:
             return response.text
 
     def download_file_bytes(self, file_url: str) -> bytes:
-        with httpx.Client(
-            timeout=settings.followthru_download_timeout_seconds
-        ) as client:
+        with httpx.Client(timeout=30) as client:
             response = client.get(
                 file_url,
                 headers={"Authorization": f"Bearer {settings.slack_bot_token}"},

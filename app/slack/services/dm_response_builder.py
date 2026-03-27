@@ -6,12 +6,9 @@ DM_HELP_TEXT = (
     "*FollowThru DM guide*\n"
     "- Run `stop` or `/followthru stop` to cancel the latest meeting job in this DM.\n"
     "- Paste transcript text for shorter meeting notes.\n"
-    "- Upload transcript files in `.txt`, `.md`, `.csv`, `.tsv`, "
-    "`.srt`, `.vtt`, `.log`, or `.docx`.\n"
-    "- Paste a supported Zoom recording link and FollowThru will fetch "
-    "the transcript or transcribe the media.\n"
-    "- Start with `preview` for a private preview, `draft` for a saved "
-    "draft, or `publish` to create a standalone Slack canvas."
+    "- Upload transcript files in `.txt`, `.md`, `.csv`, `.tsv`, `.srt`, `.vtt`, `.log`, or `.docx`.\n"
+    "- Paste a supported Zoom recording link and FollowThru will fetch the transcript or transcribe the media.\n"
+    "- Start with `preview` for a private preview, `draft` for a saved draft, or `publish` to create a standalone Slack canvas."
 )
 DM_ACCEPTED_MESSAGE = (
     "*Processing your meeting notes...*\n"
@@ -37,10 +34,7 @@ def build_preview_message(extraction, footer: str | None = None) -> str:
 
     if extraction.decisions:
         lines.extend(["", "*Key decisions*"])
-        lines.extend(
-            f"{index}. {item.content}"
-            for index, item in enumerate(extraction.decisions[:5], start=1)
-        )
+        lines.extend(f"{index}. {item.content}" for index, item in enumerate(extraction.decisions[:5], start=1))
 
     if extraction.action_items:
         lines.extend(["", "*Action items*"])
@@ -55,10 +49,7 @@ def build_preview_message(extraction, footer: str | None = None) -> str:
 
     if extraction.risks:
         lines.extend(["", "*Risks*"])
-        lines.extend(
-            f"{index}. {item.content}"
-            for index, item in enumerate(extraction.risks[:5], start=1)
-        )
+        lines.extend(f"{index}. {item.content}" for index, item in enumerate(extraction.risks[:5], start=1))
 
     if extraction.open_questions:
         lines.extend(["", "*Open questions*"])
@@ -115,7 +106,10 @@ def build_completion_message(
 
 def build_failure_message(reason: str | None = None) -> str:
     if reason:
-        return "*I could not complete that job.*\n" f"_{reason}_"
+        return (
+            "*I could not complete that job.*\n"
+            f"_{reason}_"
+        )
     return (
         "*I hit a snag while processing that source.*\n"
         "_Please try again in a moment._"

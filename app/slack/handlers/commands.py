@@ -20,7 +20,6 @@ from app.domain.services.followthru_service import (
 from app.domain.services.ingestion_job_service import request_job_stop
 from app.integrations.slack_client import slack_client
 from app.logger import logger
-from app.slack.services.dm_ingestion_service import handle_dm_ingestion_event
 from app.slack.services.source_resolver import (
     resolve_latest_huddle_notes_canvas,
 )
@@ -37,8 +36,6 @@ HELP_TEXT = (
     "- `/followthru stop` cancels the latest in-flight meeting job for this DM.\n"
     "- Paste a transcript directly for shorter notes, or upload a transcript "
     "file for larger Zoom, Meet, or Slack huddles.\n"
-    "- Paste a supported Zoom recording link to fetch a transcript "
-    "or transcribe media.\n"
     "FollowThru keeps command output private to the person who runs it."
 )
 
@@ -60,14 +57,13 @@ DM_HELP_TEXT = (
     "- Paste transcript text for shorter notes.\n"
     "- For larger transcripts, upload a file and FollowThru will turn it into "
     "a standalone canvas when possible.\n"
-    "- Supported uploads: `.txt`, `.md`, `.csv`, `.tsv`, `.srt`, `.vtt`, `.log`, "
+    "- Supported uploads: `.txt`, `.md`, `.csv`, `.tsv`, `.srt`, `.vtt`, "
     "and `.docx`.\n"
-    "- Paste a supported Zoom recording link to fetch the transcript "
-    "or transcribe the media.\n"
     "- Start with `preview` if you only want a private preview.\n"
     "- Start with `draft` to save a local draft without publishing.\n"
     "- Start with `publish` to create a standalone canvas you can edit and share."
 )
+<<<<<<< HEAD
 DM_CLEAR_CHANNEL_MESSAGE = "`/followthru clear` only works in a DM with FollowThru."
 DM_STOP_CHANNEL_MESSAGE = "`/followthru stop` only works in a DM with FollowThru."
 DM_STOP_EMPTY_MESSAGE = "There is no active FollowThru job to stop in this DM."
@@ -76,6 +72,10 @@ DM_STOP_PENDING_MESSAGE = (
 )
 DM_STOP_ACTIVE_MESSAGE = (
     "Stop requested. FollowThru will halt the current meeting job shortly."
+=======
+DM_CLEAR_CHANNEL_MESSAGE = (
+    "`/followthru clear` only works in a DM with FollowThru."
+>>>>>>> parent of 82543da (Merge pull request #4 from a2003Kotnala/Ankit/home)
 )
 
 DM_PREVIEW_FOOTER = (
@@ -250,7 +250,46 @@ def register_handlers(bolt_app) -> None:
             return
         if event.get("bot_id") or event.get("subtype") == "message_changed":
             return
-        handle_dm_ingestion_event(event, say)
+
+        dm_payload = _build_dm_source_payload(event)
+        if not dm_payload.text:
+            say(text=_build_dm_file_support_message(dm_payload))
+            return
+
+        lowered = dm_payload.text.lower()
+        if lowered in {"help", "hi", "hello"}:
+            say(text=DM_HELP_TEXT)
+            return
+
+        status_message = say(text=DM_PROCESSING_MESSAGE)
+        message_ref = _extract_message_ref(status_message, event["channel"])
+        transcript_artifact = _upload_dm_transcript_artifact(
+            event["channel"],
+            dm_payload,
+        )
+
+        try:
+            response = handle_followthru_chat(
+                FollowThruChatRequest(
+                    message=_normalize_dm_request(dm_payload.text),
+                    user_id=event["user"],
+                    channel_id=event["channel"],
+                    thread_ts=event.get("thread_ts") or event["ts"],
+                )
+            )
+            final_text = _build_dm_followthru_message(
+                response,
+                dm_payload=dm_payload,
+                transcript_artifact=transcript_artifact,
+            )
+        except Exception:
+            logger.exception("Failed to process FollowThru DM transcript")
+            final_text = DM_FAILURE_MESSAGE
+
+        if _update_dm_status_message(message_ref, final_text):
+            return
+
+        say(text=final_text)
 
 
 def _parse_command_text(text: str) -> tuple[str, str]:
@@ -566,7 +605,9 @@ def _build_dm_file_support_message(dm_payload: DMSourcePayload) -> str:
         )
 
     if dm_payload.unsupported_files:
-        file_names = ", ".join(f"`{name}`" for name in dm_payload.unsupported_files[:3])
+        file_names = ", ".join(
+            f"`{name}`" for name in dm_payload.unsupported_files[:3]
+        )
         return (
             ":paperclip: *That upload format is not supported yet.*\n"
             f"_I can currently process transcript files in "

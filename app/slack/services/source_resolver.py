@@ -6,18 +6,13 @@ from datetime import datetime
 from app.db.models.source import Source, SourceType
 from app.db.models.user import User
 from app.db.session import SessionLocal
-from app.domain.services.transcript_parser import (
-    DOCX_MIMETYPE,
-    is_supported_transcript_file,
-    parse_transcript_bytes,
-    parse_transcript_text,
-)
 from app.integrations.slack_client import slack_client
 
 TRANSCRIPT_NAME_MARKERS = (
     "huddle transcript",
     "transcript",
 )
+TEXT_FILE_TYPES = {"text", "csv", "markdown", "md", "txt"}
 THIN_CANVAS_MARKERS = (
     "slack ai took notes for this huddle",
     "attendees",
@@ -139,29 +134,14 @@ def _resolve_transcript_text(
     if preview:
         return preview
 
-    download_url = merged_details.get("url_private_download") or merged_details.get(
-        "url_private"
+    download_url = (
+        merged_details.get("url_private_download") or merged_details.get("url_private")
     )
     if not download_url:
         return None
 
-    if (merged_details.get("mimetype") or "").lower() != DOCX_MIMETYPE and (
-        merged_details.get("name", "")
-        .lower()
-        .endswith((".txt", ".md", ".markdown", ".csv", ".tsv", ".srt", ".vtt", ".log"))
-        or (merged_details.get("mimetype") or "").lower().startswith("text/")
-    ):
-        downloaded = slack_client.download_text_file(download_url)
-        parsed_text = parse_transcript_text(merged_details.get("name", ""), downloaded)
-        return parsed_text.strip() or None
-
-    downloaded_bytes = slack_client.download_file_bytes(download_url)
-    parsed_text = parse_transcript_bytes(
-        merged_details.get("name", "transcript.txt"),
-        downloaded_bytes,
-        mimetype=merged_details.get("mimetype"),
-    ).text
-    return parsed_text.strip() or None
+    downloaded = slack_client.download_text_file(download_url).strip()
+    return downloaded or None
 
 
 def _select_best_source_text(
@@ -235,7 +215,9 @@ def _is_transcript_candidate(
         return False
 
     if any(
-        hint == normalized_name or hint in normalized_name or normalized_name in hint
+        hint == normalized_name
+        or hint in normalized_name
+        or normalized_name in hint
         for hint in transcript_hints
     ):
         return True
@@ -277,13 +259,18 @@ def _score_transcript_candidate(
 def _extract_inline_file_text(file_info: dict) -> str | None:
     preview = _coerce_text(file_info.get("preview"))
     if preview and _is_likely_text_file(file_info):
-        name = file_info.get("name", "transcript.txt")
-        return parse_transcript_text(name, preview)
+        return preview
     return _coerce_text(file_info.get("content")) or None
 
 
 def _is_likely_text_file(file_info: dict) -> bool:
-    return is_supported_transcript_file(file_info) or bool(file_info.get("preview"))
+    mimetype = _coerce_text(file_info.get("mimetype")).lower()
+    filetype = _coerce_text(file_info.get("filetype")).lower()
+    return (
+        mimetype.startswith("text/")
+        or filetype in TEXT_FILE_TYPES
+        or bool(file_info.get("preview"))
+    )
 
 
 def _is_thin_canvas_content(content: str) -> bool:

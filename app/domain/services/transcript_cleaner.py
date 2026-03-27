@@ -7,7 +7,9 @@ from app.domain.schemas.ingestion import TranscriptDocument
 SPEAKER_OR_SECTION_PATTERN = re.compile(
     r"^([A-Z][A-Za-z0-9 ._-]{0,40}:|\[[^\]]+\]|Action:|Decision:|Risk:|Question:)"
 )
-PURE_TIMESTAMP_PATTERN = re.compile(r"^\s*(\d{2}:)?\d{2}:\d{2}([,.]\d{3})?\s*$")
+PURE_TIMESTAMP_PATTERN = re.compile(
+    r"^\s*(\d{2}:)?\d{2}:\d{2}([,.]\d{3})?\s*$"
+)
 
 
 def clean_transcript(document: TranscriptDocument) -> TranscriptDocument:

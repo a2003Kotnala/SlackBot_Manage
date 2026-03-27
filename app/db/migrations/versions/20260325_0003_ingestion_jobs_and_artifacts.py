@@ -250,9 +250,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_provider_access_records_job_id", table_name="provider_access_records"
-    )
+    op.drop_index("ix_provider_access_records_job_id", table_name="provider_access_records")
     op.drop_index("ix_retry_records_job_id", table_name="retry_records")
     op.drop_index("ix_audit_logs_job_id", table_name="audit_logs")
     op.drop_index("ix_canvas_versions_job_id", table_name="canvas_versions")

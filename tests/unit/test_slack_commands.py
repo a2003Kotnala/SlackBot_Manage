@@ -1,5 +1,7 @@
+from io import BytesIO
 from types import SimpleNamespace
 from uuid import uuid4
+from zipfile import ZipFile
 
 from app.domain.schemas.extraction import (
     ActionItem,
@@ -7,6 +9,7 @@ from app.domain.schemas.extraction import (
     ExtractionResult,
     InsightItem,
 )
+from app.domain.schemas.followthru import FollowThruMode
 from app.domain.services.followthru_service import FollowThruClearResult
 from app.slack.handlers.commands import register_handlers
 
@@ -149,7 +152,8 @@ def test_followthru_preview_command_returns_canvas_preview(monkeypatch):
         "app.slack.handlers.commands.resolve_latest_huddle_notes_canvas",
         lambda *_args, **_kwargs: SimpleNamespace(
             raw_content_reference=(
-                "Decision: Ship the pilot.\n" "Action: Prepare demo @maya 2026-03-20"
+                "Decision: Ship the pilot.\n"
+                "Action: Prepare demo @maya 2026-03-20"
             ),
             source_type=SimpleNamespace(value="huddle_notes"),
         ),
@@ -233,8 +237,6 @@ def test_followthru_help_command_returns_usage():
                 "for this DM.\n"
                 "- Paste a transcript directly for shorter notes, or upload a "
                 "transcript file for larger Zoom, Meet, or Slack huddles.\n"
-                "- Paste a supported Zoom recording link to fetch a transcript "
-                "or transcribe media.\n"
                 "FollowThru keeps command output private to the person who runs it."
             ),
             "response_type": "ephemeral",
@@ -411,16 +413,36 @@ def test_followthru_app_mention_uses_chat_service(monkeypatch):
     assert messages == [("Handled: preview these notes", "1710000000.000100")]
 
 
-def test_followthru_dm_message_delegates_to_ingestion_service(monkeypatch):
+def test_followthru_dm_message_defaults_to_publish_workflow(monkeypatch):
     app = FakeBoltApp()
     register_handlers(app)
 
-    captured: list[dict] = []
+    captured_messages: list[str] = []
+    updated_messages: list[tuple[str, str, str]] = []
+
     monkeypatch.setattr(
-        "app.slack.handlers.commands.handle_dm_ingestion_event",
-        lambda event, say: captured.append(event) or True,
+        "app.slack.handlers.commands.handle_followthru_chat",
+        lambda payload: captured_messages.append(payload.message)
+        or SimpleNamespace(
+            mode=FollowThruMode.publish,
+            reply=(
+                "Published Pilot Review. 1 action item(s), 0 attention item(s). "
+                "Slack canvas ID: F123."
+            ),
+            slack_canvas_id="F123",
+            draft_canvas_markdown="# Pilot Review",
+            draft_title="Pilot Review",
+            extraction=None,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.update_message",
+        lambda channel_id, message_ts, text: updated_messages.append(
+            (channel_id, message_ts, text)
+        ),
     )
 
+    messages: list[str] = []
     app.event_handlers["message"](
         event={
             "channel_type": "im",
@@ -429,30 +451,107 @@ def test_followthru_dm_message_delegates_to_ingestion_service(monkeypatch):
             "ts": "1710000000.000200",
             "text": "Decision: Ship the pilot. Action: Prepare demo @maya",
         },
-        say=lambda text: {"channel": "D123", "ts": "1710000000.000200"},
+        say=lambda text: messages.append(text)
+        or {"channel": "D123", "ts": "1710000000.000200"},
     )
 
-    assert captured == [
-        {
-            "channel_type": "im",
-            "user": "U123",
-            "channel": "D123",
-            "ts": "1710000000.000200",
-            "text": "Decision: Ship the pilot. Action: Prepare demo @maya",
-        }
+    assert captured_messages == [
+        "publish Decision: Ship the pilot. Action: Prepare demo @maya"
     ]
+    assert "Processing your transcript" in messages[0]
+    assert updated_messages[0][0:2] == ("D123", "1710000000.000200")
+    assert "Canvas ready." in updated_messages[0][2]
+    assert "Slack canvas ID: F123." in updated_messages[0][2]
 
 
-def test_followthru_dm_file_message_delegates_to_ingestion_service(monkeypatch):
+def test_followthru_dm_preview_command_returns_preview(monkeypatch):
     app = FakeBoltApp()
     register_handlers(app)
 
-    captured: list[dict] = []
-    monkeypatch.setattr(
-        "app.slack.handlers.commands.handle_dm_ingestion_event",
-        lambda event, say: captured.append(event) or True,
+    extraction = ExtractionResult(
+        meeting_title="Pilot Review",
+        status_summary="Execution in progress",
+        priority_focus="Prepare demo",
+        decisions=[InsightItem(content="Ship the pilot.", confidence=Confidence.high)],
+        action_items=[
+            ActionItem(
+                content="Prepare demo",
+                owner="maya",
+                confidence=Confidence.high,
+            )
+        ],
+        confidence_overall=Confidence.high,
     )
 
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.handle_followthru_chat",
+        lambda _payload: SimpleNamespace(
+            mode=FollowThruMode.preview,
+            reply="Preview ready",
+            extraction=extraction,
+            slack_canvas_id=None,
+            draft_canvas_markdown="# Preview Canvas",
+            draft_title=None,
+        ),
+    )
+    updated_messages: list[str] = []
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.update_message",
+        lambda _channel_id, _message_ts, text: updated_messages.append(text),
+    )
+
+    messages: list[str] = []
+    app.event_handlers["message"](
+        event={
+            "channel_type": "im",
+            "user": "U123",
+            "channel": "D123",
+            "ts": "1710000000.000250",
+            "text": "preview Decision: Ship the pilot. Action: Prepare demo @maya",
+        },
+        say=lambda text: messages.append(text)
+        or {"channel": "D123", "ts": "1710000000.000250"},
+    )
+
+    assert "Processing your transcript" in messages[0]
+    assert "*Preview ready.* No draft was created." in updated_messages[0]
+    assert "Use `publish` in this DM to create a standalone Slack canvas" in (
+        updated_messages[0]
+    )
+
+
+def test_followthru_dm_file_downloads_supported_text_and_shows_local_canvas(
+    monkeypatch,
+):
+    app = FakeBoltApp()
+    register_handlers(app)
+    updated_messages: list[str] = []
+
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.download_text_file",
+        lambda _url: "Decision: Ship the pilot.",
+    )
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.handle_followthru_chat",
+        lambda payload: SimpleNamespace(
+            mode=FollowThruMode.draft,
+            reply=(
+                "Saved local draft Pilot Review. 1 action item(s), "
+                "0 attention item(s)."
+            ),
+            extraction=None,
+            slack_canvas_id=None,
+            draft_canvas_markdown="# Pilot Review\n## Action Items\n- Prepare demo",
+            draft_title="Pilot Review",
+            normalized_input=payload.message,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.update_message",
+        lambda _channel_id, _message_ts, text: updated_messages.append(text),
+    )
+
+    messages: list[str] = []
     app.event_handlers["message"](
         event={
             "channel_type": "im",
@@ -469,31 +568,173 @@ def test_followthru_dm_file_message_delegates_to_ingestion_service(monkeypatch):
                 }
             ],
         },
-        say=lambda text: {"channel": "D123", "ts": "1710000000.000300"},
+        say=lambda text: messages.append(text)
+        or {"channel": "D123", "ts": "1710000000.000300"},
     )
 
-    assert captured[0]["files"][0]["name"] == "transcript.txt"
+    assert "Processing your transcript" in messages[0]
+    assert "Draft ready." in updated_messages[0]
+    assert "Saved local draft Pilot Review" in updated_messages[0]
+    assert "*Canvas draft*" in updated_messages[0]
+    assert "## Action Items" in updated_messages[0]
+    assert "Processed uploaded transcript file(s): `transcript.txt`." in (
+        updated_messages[0]
+    )
 
 
-def test_followthru_dm_ignores_non_dm_messages(monkeypatch):
+def test_followthru_dm_docx_file_is_parsed_and_processed(monkeypatch):
+    app = FakeBoltApp()
+    register_handlers(app)
+    updated_messages: list[str] = []
+    captured_messages: list[str] = []
+
+    def build_docx_bytes() -> bytes:
+        buffer = BytesIO()
+        with ZipFile(buffer, "w") as archive:
+            archive.writestr(
+                "word/document.xml",
+                (
+                    "<w:document xmlns:w="
+                    '"http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                    "<w:body>"
+                    "<w:p><w:r><w:t>Decision: Ship the pilot.</w:t></w:r></w:p>"
+                    "<w:p><w:r><w:t>Action: Prepare demo.</w:t></w:r></w:p>"
+                    "</w:body></w:document>"
+                ),
+            )
+        return buffer.getvalue()
+
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.download_file_bytes",
+        lambda _url: build_docx_bytes(),
+    )
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.handle_followthru_chat",
+        lambda payload: captured_messages.append(payload.message)
+        or SimpleNamespace(
+            mode=FollowThruMode.publish,
+            reply="Published Pilot Review. 1 action item(s), 0 attention item(s).",
+            extraction=None,
+            slack_canvas_id="F123",
+            draft_canvas_markdown="# Pilot Review",
+            draft_title="Pilot Review",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.update_message",
+        lambda _channel_id, _message_ts, text: updated_messages.append(text),
+    )
+
+    messages: list[str] = []
+    app.event_handlers["message"](
+        event={
+            "channel_type": "im",
+            "user": "U123",
+            "channel": "D123",
+            "ts": "1710000000.000310",
+            "text": "",
+            "files": [
+                {
+                    "name": "zoom-transcript.docx",
+                    "mimetype": (
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    ),
+                    "filetype": "docx",
+                    "url_private_download": "https://example.com/transcript.docx",
+                }
+            ],
+        },
+        say=lambda text: messages.append(text)
+        or {"channel": "D123", "ts": "1710000000.000310"},
+    )
+
+    assert "Processing your transcript" in messages[0]
+    assert captured_messages == [
+        "publish Decision: Ship the pilot.\nAction: Prepare demo."
+    ]
+    assert "Processed uploaded transcript file(s): `zoom-transcript.docx`." in (
+        updated_messages[0]
+    )
+
+
+def test_followthru_dm_unsupported_file_returns_clear_guidance(monkeypatch):
     app = FakeBoltApp()
     register_handlers(app)
 
-    called = {"value": False}
-    monkeypatch.setattr(
-        "app.slack.handlers.commands.handle_dm_ingestion_event",
-        lambda event, say: called.__setitem__("value", True),
-    )
-
+    messages: list[str] = []
     app.event_handlers["message"](
         event={
-            "channel_type": "channel",
+            "channel_type": "im",
             "user": "U123",
-            "channel": "C123",
-            "ts": "1710000000.000200",
-            "text": "Decision: Ship the pilot.",
+            "channel": "D123",
+            "ts": "1710000000.000320",
+            "text": "",
+            "files": [
+                {
+                    "name": "meeting-recording.pdf",
+                    "mimetype": "application/pdf",
+                    "filetype": "pdf",
+                }
+            ],
         },
-        say=lambda text: None,
+        say=lambda text: messages.append(text),
     )
 
-    assert called["value"] is False
+    assert "That upload format is not supported yet." in messages[0]
+    assert "meeting-recording.pdf" in messages[0]
+    assert "`.txt`, `.md`, `.csv`, `.tsv`, `.srt`, `.vtt`, or `.docx`" in (
+        messages[0]
+    )
+
+
+def test_followthru_dm_long_text_uploads_transcript_artifact(monkeypatch):
+    app = FakeBoltApp()
+    register_handlers(app)
+    updated_messages: list[str] = []
+    uploaded_files: list[tuple[str, str, str, str | None]] = []
+
+    long_text = "Decision: Ship the pilot.\n" * 500
+
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.upload_text_file",
+        lambda channel_id, filename, content, title=None: uploaded_files.append(
+            (channel_id, filename, content, title)
+        )
+        or {"id": "F888", "name": filename, "title": title},
+    )
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.handle_followthru_chat",
+        lambda payload: SimpleNamespace(
+            mode=FollowThruMode.publish,
+            reply="Published Pilot Review. 1 action item(s), 0 attention item(s).",
+            extraction=None,
+            slack_canvas_id="F123",
+            draft_canvas_markdown="# Pilot Review",
+            draft_title="Pilot Review",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.slack.handlers.commands.slack_client.update_message",
+        lambda _channel_id, _message_ts, text: updated_messages.append(text),
+    )
+
+    messages: list[str] = []
+    app.event_handlers["message"](
+        event={
+            "channel_type": "im",
+            "user": "U123",
+            "channel": "D123",
+            "ts": "1710000000.000330",
+            "text": long_text,
+        },
+        say=lambda text: messages.append(text)
+        or {"channel": "D123", "ts": "1710000000.000330"},
+    )
+
+    assert "Processing your transcript" in messages[0]
+    assert uploaded_files
+    assert uploaded_files[0][0] == "D123"
+    assert uploaded_files[0][1].startswith("followthru-transcript-")
+    assert uploaded_files[0][2].startswith("Decision: Ship the pilot.")
+    assert "Saved a transcript file copy as" in updated_messages[0]

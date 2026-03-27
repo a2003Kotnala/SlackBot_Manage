@@ -29,41 +29,34 @@ ALLOWED_JOB_TRANSITIONS: dict[IngestionJobStatus, set[IngestionJobStatus]] = {
         IngestionJobStatus.failed,
         IngestionJobStatus.retrying,
         IngestionJobStatus.needs_permission,
-        IngestionJobStatus.unsupported_source,
     },
     IngestionJobStatus.fetched: {
         IngestionJobStatus.normalizing_media,
         IngestionJobStatus.transcribing,
         IngestionJobStatus.cleaning_transcript,
         IngestionJobStatus.failed,
-        IngestionJobStatus.unsupported_source,
     },
     IngestionJobStatus.normalizing_media: {
         IngestionJobStatus.transcribing,
         IngestionJobStatus.failed,
         IngestionJobStatus.retrying,
-        IngestionJobStatus.unsupported_source,
     },
     IngestionJobStatus.transcribing: {
         IngestionJobStatus.cleaning_transcript,
         IngestionJobStatus.failed,
         IngestionJobStatus.retrying,
-        IngestionJobStatus.unsupported_source,
     },
     IngestionJobStatus.cleaning_transcript: {
         IngestionJobStatus.extracting_intelligence,
         IngestionJobStatus.failed,
-        IngestionJobStatus.unsupported_source,
     },
     IngestionJobStatus.extracting_intelligence: {
         IngestionJobStatus.rendering_canvas,
         IngestionJobStatus.failed,
-        IngestionJobStatus.unsupported_source,
     },
     IngestionJobStatus.rendering_canvas: {
         IngestionJobStatus.completed,
         IngestionJobStatus.failed,
-        IngestionJobStatus.unsupported_source,
     },
     IngestionJobStatus.retrying: {
         IngestionJobStatus.queued,

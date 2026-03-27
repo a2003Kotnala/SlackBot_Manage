@@ -75,7 +75,8 @@ def test_long_transcript_is_compacted_before_llm_extraction(monkeypatch):
     assert len(captured["raw_content"]) < len(notes)
     assert "Decision: Ship the pilot this week." in captured["raw_content"]
     assert (
-        "Action: Prepare the customer demo @maya 2026-03-27" in captured["raw_content"]
+        "Action: Prepare the customer demo @maya 2026-03-27"
+        in captured["raw_content"]
     )
     assert "Risk: QA sign-off is still pending." in captured["raw_content"]
     assert (
