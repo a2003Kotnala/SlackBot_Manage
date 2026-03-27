@@ -83,6 +83,7 @@ class Settings(BaseSettings):
         default=30.0,
         validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS", "OPENAI_TIMEOUT_SECONDS"),
     )
+<<<<<<< HEAD
     transcription_base_url: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
@@ -131,10 +132,13 @@ class Settings(BaseSettings):
     transcription_vad_filter: bool = True
     transcription_condition_on_previous_text: bool = False
     transcription_initial_prompt: str | None = None
+=======
+>>>>>>> parent of 4c21deb (Merge pull request #3 from a2003Kotnala/Ankit/home)
     slack_publish_drafts: bool = True
     primary_slack_command: str = "/followthru"
     legacy_slack_command: str = "/zmanage"
     followthru_chat_history_limit: int = 12
+<<<<<<< HEAD
     followthru_job_execution_mode: str = "threaded"
     followthru_max_job_retries: int = 2
     followthru_download_timeout_seconds: float = 45.0
@@ -143,6 +147,8 @@ class Settings(BaseSettings):
     followthru_artifact_storage_dir: str = "var/artifacts"
     ffmpeg_binary: str = "ffmpeg"
     ffprobe_binary: str = "ffprobe"
+=======
+>>>>>>> parent of 4c21deb (Merge pull request #3 from a2003Kotnala/Ankit/home)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -179,10 +185,13 @@ class Settings(BaseSettings):
         "slack_signing_secret",
         "slack_app_token",
         "llm_api_key",
+<<<<<<< HEAD
         "transcription_api_key",
         "transcription_local_model",
         "transcription_language_hint",
         "transcription_initial_prompt",
+=======
+>>>>>>> parent of 4c21deb (Merge pull request #3 from a2003Kotnala/Ankit/home)
         mode="before",
     )
     @classmethod
@@ -234,6 +243,7 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
+<<<<<<< HEAD
     def resolved_transcription_base_url(self) -> str:
         if self.transcription_base_url:
             return self.transcription_base_url.rstrip("/")
@@ -265,6 +275,8 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
+=======
+>>>>>>> parent of 4c21deb (Merge pull request #3 from a2003Kotnala/Ankit/home)
     def openai_configured(self) -> bool:
         return self.llm_configured
 
