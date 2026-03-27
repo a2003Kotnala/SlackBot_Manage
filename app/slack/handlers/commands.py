@@ -17,7 +17,6 @@ from app.domain.services.followthru_service import (
     clear_followthru_dm_session,
     handle_followthru_chat,
 )
-from app.domain.services.ingestion_job_service import request_job_stop
 from app.integrations.slack_client import slack_client
 from app.logger import logger
 from app.slack.services.source_resolver import (
@@ -53,7 +52,6 @@ CHANNEL_TEXT_REDIRECT_MESSAGE = (
 DM_HELP_TEXT = (
     "*FollowThru DM guide*\n"
     "- Run `/followthru clear` for a fresh FollowThru reset in this DM.\n"
-    "- Run `/followthru stop` to cancel the latest queued or running meeting job.\n"
     "- Paste transcript text for shorter notes.\n"
     "- For larger transcripts, upload a file and FollowThru will turn it into "
     "a standalone canvas when possible.\n"
@@ -63,19 +61,8 @@ DM_HELP_TEXT = (
     "- Start with `draft` to save a local draft without publishing.\n"
     "- Start with `publish` to create a standalone canvas you can edit and share."
 )
-<<<<<<< HEAD
-DM_CLEAR_CHANNEL_MESSAGE = "`/followthru clear` only works in a DM with FollowThru."
-DM_STOP_CHANNEL_MESSAGE = "`/followthru stop` only works in a DM with FollowThru."
-DM_STOP_EMPTY_MESSAGE = "There is no active FollowThru job to stop in this DM."
-DM_STOP_PENDING_MESSAGE = (
-    "FollowThru stopped the queued meeting job for this DM."
-)
-DM_STOP_ACTIVE_MESSAGE = (
-    "Stop requested. FollowThru will halt the current meeting job shortly."
-=======
 DM_CLEAR_CHANNEL_MESSAGE = (
     "`/followthru clear` only works in a DM with FollowThru."
->>>>>>> parent of 82543da (Merge pull request #4 from a2003Kotnala/Ankit/home)
 )
 
 DM_PREVIEW_FOOTER = (
@@ -143,7 +130,13 @@ def register_handlers(bolt_app) -> None:
         is_dm = channel_id.startswith("D")
 
         if mode == "help":
-            _respond_privately(respond, DM_HELP_TEXT if is_dm else HELP_TEXT)
+            if is_dm:
+                # Send a REAL message in DMs so it can be cleared later
+                from app.integrations.slack_client import slack_client
+                slack_client.client.chat_postMessage(channel=channel_id, text=DM_HELP_TEXT)
+            else:
+                # Keep channel help messages ephemeral so we don't spam the team
+                _respond_privately(respond, HELP_TEXT)
             return
 
         if mode == "clear":
@@ -151,33 +144,15 @@ def register_handlers(bolt_app) -> None:
                 _respond_privately(respond, DM_CLEAR_CHANNEL_MESSAGE)
                 return
 
-            clear_result = clear_followthru_dm_session(channel_id)
-            removed_bot_messages = _clear_dm_bot_messages(channel_id)
-            _respond_privately(
-                respond,
-                _build_dm_clear_message(
-                    clear_result,
-                    removed_bot_messages,
-                ),
-            )
-            return
-
-        if mode == "stop":
-            if not is_dm:
-                _respond_privately(respond, DM_STOP_CHANNEL_MESSAGE)
-                return
-
-            stop_result = request_job_stop(channel_id)
-            if not stop_result.stopped:
-                _respond_privately(respond, DM_STOP_EMPTY_MESSAGE)
-                return
-
-            _respond_privately(
-                respond,
-                DM_STOP_ACTIVE_MESSAGE
-                if stop_result.active
-                else DM_STOP_PENDING_MESSAGE,
-            )
+            clear_followthru_dm_session(channel_id)
+            removed_bot_messages =_clear_dm_bot_messages(channel_id)
+            # _respond_privately(
+            #     respond,
+            #     _build_dm_clear_message(
+            #         clear_result,
+            #         removed_bot_messages,
+            #     ),
+            # )
             return
 
         if text and mode not in {"publish", "preview"}:
@@ -248,7 +223,7 @@ def register_handlers(bolt_app) -> None:
     def handle_followthru_dm(event, say):
         if event.get("channel_type") != "im":
             return
-        if event.get("bot_id") or event.get("subtype") == "message_changed":
+        if event.get("bot_id") or event.get("subtype") in {"message_changed", "message_deleted"}:
             return
 
         dm_payload = _build_dm_source_payload(event)
@@ -258,7 +233,7 @@ def register_handlers(bolt_app) -> None:
 
         lowered = dm_payload.text.lower()
         if lowered in {"help", "hi", "hello"}:
-            say(text=DM_HELP_TEXT)
+            slack_client.client.chat_postMessage(channel=event["channel"], text=DM_HELP_TEXT)
             return
 
         status_message = say(text=DM_PROCESSING_MESSAGE)
@@ -568,7 +543,8 @@ def _clear_dm_bot_messages(channel_id: str, history_limit: int = 100) -> int:
 
 def _is_followthru_bot_message(message: dict) -> bool:
     subtype = message.get("subtype")
-    return bool(message.get("bot_id") or subtype == "bot_message")
+    from app.config import settings
+    return bool(message.get("bot_id") or subtype == "bot_message" or "bot_profile" in message)
 
 
 def _build_dm_clear_message(

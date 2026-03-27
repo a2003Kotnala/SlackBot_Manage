@@ -83,72 +83,10 @@ class Settings(BaseSettings):
         default=30.0,
         validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS", "OPENAI_TIMEOUT_SECONDS"),
     )
-<<<<<<< HEAD
-    transcription_base_url: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices(
-            "TRANSCRIPTION_BASE_URL",
-            "AUDIO_TRANSCRIPTION_BASE_URL",
-            "LLM_BASE_URL",
-            "OPENAI_BASE_URL",
-            "GEMINI_BASE_URL",
-        ),
-    )
-    transcription_api_key: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices(
-            "TRANSCRIPTION_API_KEY",
-            "AUDIO_TRANSCRIPTION_API_KEY",
-            "LLM_API_KEY",
-            "GEMINI_API_KEY",
-            "OPENAI_API_KEY",
-        ),
-    )
-    transcription_model: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices(
-            "TRANSCRIPTION_MODEL",
-            "AUDIO_TRANSCRIPTION_MODEL",
-            "LLM_MODEL",
-            "GEMINI_MODEL",
-            "OPENAI_MODEL",
-        ),
-    )
-    transcription_provider: str = "openai-compatible"
-    transcription_local_model: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("TRANSCRIPTION_LOCAL_MODEL", "WHISPER_MODEL"),
-    )
-    transcription_language_hint: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices(
-            "TRANSCRIPTION_LANGUAGE_HINT",
-            "WHISPER_LANGUAGE",
-        ),
-    )
-    transcription_device: str = "auto"
-    transcription_compute_type: str | None = "float32"
-    transcription_beam_size: int = 5
-    transcription_vad_filter: bool = True
-    transcription_condition_on_previous_text: bool = False
-    transcription_initial_prompt: str | None = None
-=======
->>>>>>> parent of 4c21deb (Merge pull request #3 from a2003Kotnala/Ankit/home)
     slack_publish_drafts: bool = True
     primary_slack_command: str = "/followthru"
     legacy_slack_command: str = "/zmanage"
     followthru_chat_history_limit: int = 12
-<<<<<<< HEAD
-    followthru_job_execution_mode: str = "threaded"
-    followthru_max_job_retries: int = 2
-    followthru_download_timeout_seconds: float = 45.0
-    followthru_max_download_bytes: int = 250_000_000
-    followthru_media_processing_timeout_seconds: float = 180.0
-    followthru_artifact_storage_dir: str = "var/artifacts"
-    ffmpeg_binary: str = "ffmpeg"
-    ffprobe_binary: str = "ffprobe"
-=======
->>>>>>> parent of 4c21deb (Merge pull request #3 from a2003Kotnala/Ankit/home)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -184,14 +122,7 @@ class Settings(BaseSettings):
         "slack_bot_token",
         "slack_signing_secret",
         "slack_app_token",
-        "llm_api_key",
-<<<<<<< HEAD
-        "transcription_api_key",
-        "transcription_local_model",
-        "transcription_language_hint",
-        "transcription_initial_prompt",
-=======
->>>>>>> parent of 4c21deb (Merge pull request #3 from a2003Kotnala/Ankit/home)
+        #"llm_api_key",
         mode="before",
     )
     @classmethod
@@ -243,40 +174,6 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
-<<<<<<< HEAD
-    def resolved_transcription_base_url(self) -> str:
-        if self.transcription_base_url:
-            return self.transcription_base_url.rstrip("/")
-        return self.resolved_llm_base_url
-
-    @computed_field
-    @property
-    def resolved_transcription_model(self) -> str:
-        if self.transcription_model:
-            return self.transcription_model
-        return self.resolved_llm_model
-
-    @computed_field
-    @property
-    def resolved_transcription_provider(self) -> str:
-        return (self.transcription_provider or "openai-compatible").strip().lower()
-
-    @computed_field
-    @property
-    def resolved_local_transcription_model(self) -> str:
-        if self.transcription_local_model:
-            return self.transcription_local_model
-        return "large-v3"
-
-    @computed_field
-    @property
-    def resolved_transcription_api_key(self) -> str | None:
-        return self.transcription_api_key or self.llm_api_key
-
-    @computed_field
-    @property
-=======
->>>>>>> parent of 4c21deb (Merge pull request #3 from a2003Kotnala/Ankit/home)
     def openai_configured(self) -> bool:
         return self.llm_configured
 
@@ -296,8 +193,6 @@ class Settings(BaseSettings):
         "slack_bot_token",
         "slack_signing_secret",
         "slack_app_token",
-        "llm_api_key",
-        "transcription_api_key",
     )
     def serialize_sensitive_values(self, value: str | None):
         return value
