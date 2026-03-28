@@ -546,8 +546,6 @@ def _is_followthru_bot_message(message: dict) -> bool:
     from app.config import settings
     return bool(message.get("bot_id") or subtype == "bot_message" or "bot_profile" in message)
 
-
-
 def _build_dm_clear_message(
     clear_result,
     removed_bot_messages: int,
