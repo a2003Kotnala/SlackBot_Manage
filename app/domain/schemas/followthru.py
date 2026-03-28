@@ -38,7 +38,7 @@ class FollowThruVoiceCommandRequest(BaseModel):
     channel_id: str | None = None
     thread_ts: str | None = None
 
-
+class FollowThruClearRequest(BaseModel):
 class FollowThruResponse(BaseModel):
     bot_name: str
     session_id: str
