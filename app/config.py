@@ -11,6 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_DATABASE_URL = (
     "postgresql+psycopg2://postgres:postgres@localhost:5432/followthru"
 )
+
 DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
